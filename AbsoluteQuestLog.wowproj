@@ -1,0 +1,44 @@
+﻿<Project DefaultTargets="Deploy" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Default</Configuration>
+    <Name>AbsoluteQuestLog</Name>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{b4716f62-3641-4dd0-8124-43928f7d2019}</ProjectGuid>
+    <WowPath>C:\Games\World of Warcraft\Interface\AddOns</WowPath>
+    <AssemblyName>AceQuest</AssemblyName>
+    <RootNamespace>AceQuest</RootNamespace>
+  </PropertyGroup>
+  <PropertyGroup>
+    <InterfaceVersion>30000</InterfaceVersion>
+    <AddonTitle>AceQuest</AddonTitle>
+    <AddonNotes>A library designed to simplify interaction with quests</AddonNotes>
+    <Author>Thad Ryker</Author>
+    <Dependencies>Ace3, Sea</Dependencies>
+    <AddonVersion>1.0</AddonVersion>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Default' ">
+    <OutputPath>.</OutputPath>
+  </PropertyGroup>
+  <Import Project="$(MSBuildExtensionsPath)\Microsoft\WowAddonStudio\1.0\WowAddonStudio.targets" />
+  <ItemGroup>
+    <Content Include="AbsoluteQuestLog.Options.lua">
+      <SubType>Code</SubType>
+    </Content>
+    <Content Include="AbsoluteQuestLog.toc">
+      <SubType>TableOfContents</SubType>
+    </Content>
+    <Content Include="AbsoluteQuestLog.lua">
+      <SubType>Code</SubType>
+    </Content>
+  </ItemGroup>
+  <!--
+	To modify your build process, add your task inside one of the targets below and uncomment it. 
+		
+	<Target Name="BeforeClean"></Target>
+	<Target Name="AfterClean"></Target>
+	<Target Name="BeforeRebuild"></Target>
+	<Target Name="AfterRebuild"></Target>
+	<Target Name="BeforeDeploy"></Target>
+	<Target Name="AfterDeploy"></Target>
+	-->
+</Project>
