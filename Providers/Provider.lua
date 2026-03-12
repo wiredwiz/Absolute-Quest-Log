@@ -1,0 +1,26 @@
+-- Providers/Provider.lua
+-- Documents the interface every AQL provider must implement.
+-- This file contains no runtime code; it is documentation only.
+--
+-- Every provider implements:
+--
+--   Provider:GetChainInfo(questID)
+--     Returns a ChainInfo table or nil.
+--     ChainInfo fields (when knownStatus = "known"):
+--       knownStatus = "known" | "not_a_chain" | "unknown"
+--       chainID     = questID of first quest in chain
+--       step        = this quest's 1-based position
+--       length      = total quests in chain
+--       steps       = array of { questID, title, status }
+--       provider    = "Questie" | "QuestWeaver" | "none"
+--     When knownStatus = "unknown": all other fields are nil.
+--     When knownStatus = "not_a_chain": all other fields except knownStatus are nil.
+--
+--   Provider:GetQuestType(questID)
+--     Returns "normal"|"elite"|"dungeon"|"raid"|"daily"|"pvp"|"escort" or nil.
+--
+--   Provider:GetQuestFaction(questID)
+--     Returns "Alliance", "Horde", or nil (nil means available to both).
+--
+-- All provider calls in EventEngine are wrapped in pcall. A provider that
+-- errors is marked unavailable and the next provider in the chain is tried.
