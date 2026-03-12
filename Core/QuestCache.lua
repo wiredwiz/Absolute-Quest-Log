@@ -26,6 +26,11 @@ function QuestCache:Rebuild()
     -- Build a logIndex-by-questID map during iteration (needed for timer queries).
     local logIndexByQuestID = {}
 
+    -- Preserve the player's current quest log selection.
+    -- _buildEntry calls SelectQuestLogEntry() to read timer data; without this
+    -- the player's selected entry would silently shift to the last processed quest.
+    local originalSelection = GetQuestLogSelection()
+
     for i = 1, numEntries do
         -- TBC 20505: C_QuestLog.GetInfo() does not exist; use GetQuestLogTitle() global.
         -- Returns: title, level, suggestedGroup, isHeader, isCollapsed, isComplete,
@@ -55,6 +60,8 @@ function QuestCache:Rebuild()
             end
         end
     end
+
+    SelectQuestLogEntry(originalSelection or 0)  -- restore player's selection
 
     local old = self.data
     self.data = new
