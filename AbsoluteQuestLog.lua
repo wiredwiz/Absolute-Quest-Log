@@ -9,6 +9,10 @@ if not AQL then return end  -- Already loaded at equal or higher version.
 -- CallbackHandler provides AQL:RegisterCallback / AQL:UnregisterCallback.
 AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 
+-- Chat color escape sequences for debug/error messages.
+AQL.RED   = "|cffff0000"
+AQL.RESET = "|r"
+
 -- Sub-module slots — populated by the files that load after this one.
 -- AbsoluteQuestLog.lua loads first (per TOC order), so these are nil until
 -- the sub-module files run. Public methods guard against nil sub-modules.

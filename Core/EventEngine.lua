@@ -157,7 +157,7 @@ local function runDiff(oldCache)
     if not ok then
         -- Log diff errors in debug mode; do not propagate.
         if AQL.debug then
-            print("[AQL] EventEngine diff error: " .. tostring(err))
+            print(AQL.RED .. "[AQL] EventEngine diff error: " .. tostring(err) .. AQL.RESET)
         end
     end
 end

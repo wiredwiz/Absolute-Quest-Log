@@ -55,7 +55,7 @@ function QuestCache:Rebuild()
                 if ok and entryOrErr then
                     new[questID] = entryOrErr
                 elseif not ok and AQL.debug then
-                    print("[AQL] QuestCache: error building entry for questID " .. tostring(questID) .. ": " .. tostring(entryOrErr))
+                    print(AQL.RED .. "[AQL] QuestCache: error building entry for questID " .. tostring(questID) .. ": " .. tostring(entryOrErr) .. AQL.RESET)
                 end
             end
         end
