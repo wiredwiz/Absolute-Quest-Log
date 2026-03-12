@@ -14,8 +14,8 @@ if not AQL then return end
 local EventEngine = {}
 AQL.EventEngine = EventEngine
 
--- Set by QuestCache to track quests that have received QUEST_FAILED.
--- EventEngine writes here; QuestCache reads here during _buildEntry.
+-- EventEngine writes reason strings here ("timeout", "escort_died", "unknown");
+-- QuestCache reads during _buildEntry to populate QuestInfo.failReason.
 -- (QuestCache.failedSet is initialized in QuestCache.lua; we just write to it.)
 
 EventEngine.diffInProgress   = false
@@ -202,15 +202,26 @@ frame:SetScript("OnEvent", function(self, event, ...)
         frame:UnregisterEvent("QUEST_QUERY_COMPLETE")
 
     elseif event == "QUEST_FAILED" then
-        -- Mark the quest as failed before the next cache rebuild picks it up.
-        local questID = ...  -- first event argument; select(2,...) would skip it
-        -- In TBC Classic, QUEST_FAILED may not pass a questID directly.
-        -- As a fallback, mark all currently active quests that have isFailed
-        -- based on the next QUEST_LOG_UPDATE (it will set isFailed via isComplete=-1).
-        -- If questID is available, mark it directly.
+        local questID = ...  -- first event argument
         if questID and type(questID) == "number" then
-            AQL.QuestCache.failedSet[questID] = true
+            -- Determine failure reason from the pre-failure snapshot.
+            -- timerSeconds and snapshotTime are set synchronously in _buildEntry,
+            -- so their delta accurately estimates time remaining at event delivery.
+            -- Use a 1-second epsilon to account for event delivery lag.
+            local entry  = AQL.QuestCache and AQL.QuestCache.data[questID]
+            local reason = "unknown"
+            if entry then
+                if entry.timerSeconds and
+                   (entry.timerSeconds - (GetTime() - entry.snapshotTime)) <= 1 then
+                    reason = "timeout"
+                elseif entry.type == "escort" then
+                    reason = "escort_died"
+                end
+            end
+            AQL.QuestCache.failedSet[questID] = reason
         end
+        -- When questID is unavailable, the quest is detected failed via the diff
+        -- on the subsequent QUEST_LOG_UPDATE; failReason will be nil in that case.
         handleQuestLogUpdate()
 
     elseif event == "QUEST_TURNED_IN" then
