@@ -12,8 +12,8 @@ AQL.QuestCache = QuestCache
 -- data[questID] = QuestInfo table (see spec for full field list)
 QuestCache.data = {}
 
--- failedSet[questID] = true when QUEST_FAILED has fired for that quest.
--- EventEngine writes to this set; QuestCache reads it during Rebuild.
+-- failedSet[questID] = reason string ("timeout", "escort_died", "unknown") when
+-- QUEST_FAILED has fired for that quest. EventEngine writes; QuestCache reads.
 QuestCache.failedSet = {}
 
 -- Rebuild the entire cache from C_QuestLog.
@@ -31,14 +31,15 @@ function QuestCache:Rebuild()
         -- Returns: title, level, suggestedGroup, isHeader, isCollapsed, isComplete,
         --          frequency, questID, startEvent, displayQuestID, isOnMap, hasLocalPOI,
         --          isTask, isBounty, isStory, isHidden, isScaling
-        local title, level, _, isHeader, _, isComplete, _, questID = GetQuestLogTitle(i)
+        local title, level, suggestedGroup, isHeader, _, isComplete, _, questID = GetQuestLogTitle(i)
         if title then
             local info = {
-                title      = title,
-                level      = level,
-                isHeader   = isHeader,
-                isComplete = isComplete,
-                questID    = questID,
+                title          = title,
+                level          = level,
+                suggestedGroup = suggestedGroup,  -- nil-safe: _buildEntry applies or 0 fallback
+                isHeader       = isHeader,
+                isComplete     = isComplete,
+                questID        = questID,
             }
             if info.isHeader then
                 currentZone = info.title
@@ -64,7 +65,8 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     -- isComplete: C_QuestLog.GetInfo returns isComplete as 1 (done, not yet turned in)
     -- or false/nil if not complete.
     local isComplete = (info.isComplete == 1 or info.isComplete == true)
-    local isFailed   = self.failedSet[questID] == true
+    local isFailed   = self.failedSet[questID] ~= nil
+    local failReason = type(self.failedSet[questID]) == "string" and self.failedSet[questID] or nil
 
     -- Timer: requires selecting the quest log entry.
     -- SelectQuestLogEntry briefly changes quest log UI selection; this is safe
@@ -122,20 +124,22 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     end
 
     return {
-        questID      = questID,
-        title        = info.title or "",
-        level        = info.level or 0,
-        zone         = zone,
-        type         = questType,
-        faction      = questFaction,
-        isComplete   = isComplete,
-        isFailed     = isFailed,
-        isTracked    = isTracked,
-        link         = link,
-        snapshotTime = GetTime(),
-        timerSeconds = timerSeconds,
-        objectives   = objectives,
-        chainInfo    = chainInfo,
+        questID        = questID,
+        title          = info.title or "",
+        level          = info.level or 0,
+        suggestedGroup = info.suggestedGroup or 0,
+        zone           = zone,
+        type           = questType,
+        faction        = questFaction,
+        isComplete     = isComplete,
+        isFailed       = isFailed,
+        failReason     = failReason,
+        isTracked      = isTracked,
+        link           = link,
+        snapshotTime   = GetTime(),
+        timerSeconds   = timerSeconds,
+        objectives     = objectives,
+        chainInfo      = chainInfo,
     }
 end
 
