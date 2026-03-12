@@ -62,8 +62,9 @@ function QuestWeaverProvider:GetChainInfo(questID)
             end
         end
 
-        -- Title: prefer QuestWeaver stored name, fall back to C_QuestLog.
-        local title = C_QuestLog.GetTitleForQuestID(sid) or ("Quest "..sid)
+        -- Title: prefer QuestWeaver stored name, fall back to C_QuestLog.GetQuestInfo
+        -- (returns title string only in TBC 20505), then a numeric placeholder.
+        local title = C_QuestLog.GetQuestInfo(sid) or ("Quest "..sid)
         local sqw = qw.Quests[sid]
         if sqw and sqw.name then title = sqw.name end
 

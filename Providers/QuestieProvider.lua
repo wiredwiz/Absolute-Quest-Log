@@ -157,11 +157,10 @@ function QuestieProvider:GetChainInfo(questID)
             end
         end
 
-        -- Title: prefer Questie's stored name, fall back to C_QuestLog title query,
-        -- then a numeric placeholder. Note: C_QuestLog.GetTitleForQuestID is available
-        -- in TBC Anniversary; verify in-game if it returns nil for inactive quests.
+        -- Title: prefer Questie's stored name, fall back to C_QuestLog.GetQuestInfo
+        -- (returns title string only in TBC 20505), then a numeric placeholder.
         local sq = QuestieDB.GetQuest(sid)
-        s.title = (sq and sq.name) or C_QuestLog.GetTitleForQuestID(sid) or ("Quest "..sid)
+        s.title = (sq and sq.name) or C_QuestLog.GetQuestInfo(sid) or ("Quest "..sid)
     end
 
     return {

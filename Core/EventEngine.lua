@@ -203,7 +203,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
 
     elseif event == "QUEST_FAILED" then
         -- Mark the quest as failed before the next cache rebuild picks it up.
-        local questID = select(2, ...)  -- QUEST_FAILED passes questID as arg2 in TBC Classic
+        local questID = ...  -- first event argument; select(2,...) would skip it
         -- In TBC Classic, QUEST_FAILED may not pass a questID directly.
         -- As a fallback, mark all currently active quests that have isFailed
         -- based on the next QUEST_LOG_UPDATE (it will set isFailed via isComplete=-1).

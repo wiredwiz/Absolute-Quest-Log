@@ -20,19 +20,29 @@ QuestCache.failedSet = {}
 -- Returns the previous cache table so callers can diff.
 function QuestCache:Rebuild()
     local new = {}
-    local numEntries = C_QuestLog.GetNumQuestLogEntries()
+    local numEntries = GetNumQuestLogEntries()  -- TBC 20505: global, returns numEntries, numQuests
     local currentZone = nil
 
     -- Build a logIndex-by-questID map during iteration (needed for timer queries).
     local logIndexByQuestID = {}
 
     for i = 1, numEntries do
-        local info = C_QuestLog.GetInfo(i)
-        if info then
+        -- TBC 20505: C_QuestLog.GetInfo() does not exist; use GetQuestLogTitle() global.
+        -- Returns: title, level, suggestedGroup, isHeader, isCollapsed, isComplete,
+        --          frequency, questID, startEvent, displayQuestID, isOnMap, hasLocalPOI,
+        --          isTask, isBounty, isStory, isHidden, isScaling
+        local title, level, _, isHeader, _, isComplete, _, questID = GetQuestLogTitle(i)
+        if title then
+            local info = {
+                title      = title,
+                level      = level,
+                isHeader   = isHeader,
+                isComplete = isComplete,
+                questID    = questID,
+            }
             if info.isHeader then
                 currentZone = info.title
             else
-                local questID = info.questID
                 logIndexByQuestID[questID] = i
                 -- Wrap each entry build in pcall so one bad entry never aborts the loop.
                 local ok, entryOrErr = pcall(self._buildEntry, self, questID, info, currentZone, i)
