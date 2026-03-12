@@ -89,8 +89,33 @@ local function runDiff(oldCache)
                     histCache:MarkCompleted(questID)
                     AQL.callbacks:Fire("AQL_QUEST_COMPLETED", oldInfo)
                 else
-                    -- No completion record → abandoned.
-                    AQL.callbacks:Fire("AQL_QUEST_ABANDONED", oldInfo)
+                    -- No completion record. Infer failure from the last snapshot.
+                    -- TBC Classic has no QUEST_FAILED event, so we use timer and
+                    -- quest type as heuristics.
+                    local failReason = nil
+                    if oldInfo.timerSeconds and oldInfo.snapshotTime then
+                        local remaining = oldInfo.timerSeconds - (GetTime() - oldInfo.snapshotTime)
+                        if remaining <= 1 then
+                            failReason = "timeout"
+                        end
+                    end
+                    if not failReason and oldInfo.type == "escort" then
+                        failReason = "escort_died"
+                    end
+
+                    if failReason then
+                        oldInfo.isFailed   = true
+                        oldInfo.failReason = failReason
+                        AQL.callbacks:Fire("AQL_QUEST_FAILED", oldInfo)
+                        for _, obj in ipairs(oldInfo.objectives or {}) do
+                            if not obj.isFinished then
+                                obj.isFailed = true
+                                AQL.callbacks:Fire("AQL_OBJECTIVE_FAILED", oldInfo, obj)
+                            end
+                        end
+                    else
+                        AQL.callbacks:Fire("AQL_QUEST_ABANDONED", oldInfo)
+                    end
                 end
             end
         end
@@ -181,8 +206,8 @@ frame:SetScript("OnEvent", function(self, event, ...)
         local provider, providerName = selectProvider()
         AQL.provider = provider
 
-        -- Trigger async history load.
-        AQL.HistoryCache:Load(frame)
+        -- Load completed quest history (synchronous in TBC Classic).
+        AQL.HistoryCache:Load()
 
         -- Build the initial snapshot (no diff on first build).
         AQL.QuestCache:Rebuild()
@@ -192,37 +217,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
         frame:RegisterEvent("QUEST_ACCEPTED")
         frame:RegisterEvent("QUEST_REMOVED")
         frame:RegisterEvent("QUEST_TURNED_IN")
-        frame:RegisterEvent("QUEST_FAILED")
         frame:RegisterEvent("QUEST_LOG_UPDATE")
         frame:RegisterEvent("UNIT_QUEST_LOG_CHANGED")
         frame:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
-
-    elseif event == "QUEST_QUERY_COMPLETE" then
-        AQL.HistoryCache:OnQueryComplete()
-        frame:UnregisterEvent("QUEST_QUERY_COMPLETE")
-
-    elseif event == "QUEST_FAILED" then
-        local questID = ...  -- first event argument
-        if questID and type(questID) == "number" then
-            -- Determine failure reason from the pre-failure snapshot.
-            -- timerSeconds and snapshotTime are set synchronously in _buildEntry,
-            -- so their delta accurately estimates time remaining at event delivery.
-            -- Use a 1-second epsilon to account for event delivery lag.
-            local entry  = AQL.QuestCache and AQL.QuestCache.data[questID]
-            local reason = "unknown"
-            if entry then
-                if entry.timerSeconds and
-                   (entry.timerSeconds - (GetTime() - entry.snapshotTime)) <= 1 then
-                    reason = "timeout"
-                elseif entry.type == "escort" then
-                    reason = "escort_died"
-                end
-            end
-            AQL.QuestCache.failedSet[questID] = reason
-        end
-        -- When questID is unavailable, the quest is detected failed via the diff
-        -- on the subsequent QUEST_LOG_UPDATE; failReason will be nil in that case.
-        handleQuestLogUpdate()
 
     elseif event == "QUEST_TURNED_IN" then
         -- QUEST_TURNED_IN fires BEFORE QUEST_LOG_UPDATE removes the quest.

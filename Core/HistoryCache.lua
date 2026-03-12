@@ -13,15 +13,9 @@ AQL.HistoryCache = HistoryCache
  HistoryCache.completed = {}
 HistoryCache.count = 0
 
--- Called by EventEngine at PLAYER_LOGIN. Registers for QUEST_QUERY_COMPLETE,
--- fires QueryQuestsCompleted(), then populates from the result.
-function HistoryCache:Load(eventFrame)
-    eventFrame:RegisterEvent("QUEST_QUERY_COMPLETE")
-    QueryQuestsCompleted()
-end
-
--- Called from the QUEST_QUERY_COMPLETE handler in EventEngine.
-function HistoryCache:OnQueryComplete()
+-- Called by EventEngine at PLAYER_LOGIN.
+-- GetQuestsCompleted() is synchronous in TBC Classic; no async query needed.
+function HistoryCache:Load()
     local data = GetQuestsCompleted()
     local count = 0
     for questID, done in pairs(data) do

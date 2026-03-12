@@ -12,9 +12,6 @@ AQL.QuestCache = QuestCache
 -- data[questID] = QuestInfo table (see spec for full field list)
 QuestCache.data = {}
 
--- failedSet[questID] = reason string ("timeout", "escort_died", "unknown") when
--- QUEST_FAILED has fired for that quest. EventEngine writes; QuestCache reads.
-QuestCache.failedSet = {}
 
 -- Rebuild the entire cache from C_QuestLog.
 -- Returns the previous cache table so callers can diff.
@@ -72,8 +69,10 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     -- isComplete: C_QuestLog.GetInfo returns isComplete as 1 (done, not yet turned in)
     -- or false/nil if not complete.
     local isComplete = (info.isComplete == 1 or info.isComplete == true)
-    local isFailed   = self.failedSet[questID] ~= nil
-    local failReason = type(self.failedSet[questID]) == "string" and self.failedSet[questID] or nil
+    -- isFailed and failReason are set by EventEngine's diff when the quest
+    -- disappears from the log. Snapshots of live quests are always not-failed.
+    local isFailed   = false
+    local failReason = nil
 
     -- Timer: requires selecting the quest log entry.
     -- SelectQuestLogEntry briefly changes quest log UI selection; this is safe
@@ -107,7 +106,7 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
                 numFulfilled = obj.numFulfilled or 0,
                 numRequired  = obj.numRequired or 1,
                 isFinished   = obj.finished == true,
-                isFailed     = false,  -- set to true by EventEngine when the quest fails
+                isFailed     = false,
             }
         end
     end
