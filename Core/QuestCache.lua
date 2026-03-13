@@ -6,8 +6,6 @@
 local AQL = LibStub("AbsoluteQuestLog-1.0", true)
 if not AQL then return end
 
-local WOWHEAD_QUEST_BASE = "https://www.wowhead.com/tbc/quest="
-
 local QuestCache = {}
 AQL.QuestCache = QuestCache
 
@@ -145,7 +143,6 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
         isTracked      = isTracked,
         link           = link,
         logIndex       = logIndex,
-        wowheadUrl     = WOWHEAD_QUEST_BASE .. tostring(questID),
         snapshotTime   = GetTime(),
         timerSeconds   = timerSeconds,
         objectives     = objectives,
