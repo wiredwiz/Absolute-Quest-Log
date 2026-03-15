@@ -173,6 +173,30 @@ function QuestieProvider:GetChainInfo(questID)
     }
 end
 
+-- Returns { title, questLevel, requiredLevel, zone } from QuestieDB, or nil.
+-- Questie questKeys (tbcQuestDB.lua):
+--   quest.name          = key 1  (string, quest title)
+--   quest.requiredLevel = key 4  (int, minimum player level to accept)
+--   quest.questLevel    = key 5  (int, quest difficulty level)
+--   quest.zoneOrSort    = key 17 (int: >0 = DBC AreaTable ID, <0 = QuestSort category, 0 = none)
+-- Zone: C_Map.GetAreaInfo(quest.zoneOrSort) returns the localized zone name string when
+-- zoneOrSort > 0. Negative values are quest categories (not geographic zones) — omit.
+function QuestieProvider:GetQuestBasicInfo(questID)
+    if not self:IsAvailable() then return nil end
+    local ok, quest = pcall(QuestieDB.GetQuest, questID)
+    if not ok or not quest then return nil end
+    local zone
+    if quest.zoneOrSort and quest.zoneOrSort > 0 then
+        zone = C_Map.GetAreaInfo(quest.zoneOrSort)  -- returns string or nil
+    end
+    return {
+        title         = quest.name,
+        questLevel    = quest.questLevel,
+        requiredLevel = quest.requiredLevel,
+        zone          = zone,
+    }
+end
+
 function QuestieProvider:GetQuestType(questID)
     local quest = QuestieDB.GetQuest(questID)
     if not quest then return nil end
