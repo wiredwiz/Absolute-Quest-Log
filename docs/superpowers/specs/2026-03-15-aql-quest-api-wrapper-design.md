@@ -41,22 +41,24 @@ Two-tier resolution. Returns nil when no source has data.
 - `questID`, `title`
 
 **Conditional fields** (only present when the quest is in the player's log):
-- `level`, `suggestedGroup`, `isComplete`
+- `level`, `suggestedGroup`, `isComplete`, `zone`
 
 **TBC implementation — tier 1: log scan**
 
-Iterates `GetQuestLogTitle` to find the questID (8th return value). When found, returns the richer table using the data already available from that call (no `SelectQuestLogEntry` required):
+Iterates `GetQuestLogTitle` to find the questID (8th return value). Zone name is captured from header rows (where `isHeader == true` and `title` is the zone/category name) as the loop runs — same pattern used by `QuestCache:Rebuild()`. When the target quest is found, returns the richer table:
 
 ```lua
 -- GetQuestLogTitle(i) returns:
 --   title, level, suggestedGroup, isHeader, isCollapsed, isComplete, frequency, questID
 -- isComplete: 1 = done (not yet turned in), false/nil = in progress
+-- currentZone is updated each time a header row is encountered (isHeader == true)
 {
     questID        = questID,
     title          = title,
     level          = level,
     suggestedGroup = tonumber(suggestedGroup) or 0,
     isComplete     = (isComplete == 1 or isComplete == true),
+    zone           = currentZone,  -- nil if no header seen before this quest
 }
 ```
 
@@ -74,6 +76,7 @@ When the quest is not in the player's log, falls back to `C_QuestLog.GetQuestInf
 
 ```lua
 -- Returns nil if info is nil.
+-- zone: not included; full Retail support is out of scope for this phase.
 {
     questID        = questID,
     title          = info.title,
@@ -203,7 +206,7 @@ Returns the full normalized snapshot immediately if cached. All fields present.
 
 **Tier 2 — WowQuestAPI log scan / title fallback**
 
-Called only on cache miss. Returns a partial table (see `WowQuestAPI.GetQuestInfo` in Section 1). Guaranteed fields: `questID`, `title`. Conditional fields when quest is in log: `level`, `suggestedGroup`, `isComplete`.
+Called only on cache miss. Returns a partial table (see `WowQuestAPI.GetQuestInfo` in Section 1). Guaranteed fields: `questID`, `title`. Conditional fields when quest is in log: `level`, `suggestedGroup`, `isComplete`, `zone`.
 
 **Tier 3 — Provider (Questie / QuestWeaver)**
 
@@ -221,6 +224,7 @@ Tier 3 result shape (fields vary by what the provider knows):
     title         = quest.name,          -- from GetQuestBasicInfo
     level         = quest.questLevel,    -- from GetQuestBasicInfo
     requiredLevel = quest.requiredLevel, -- from GetQuestBasicInfo
+    zone          = ...,                 -- from GetQuestBasicInfo (string or nil)
     chainInfo     = {                    -- from GetChainInfo, always present
         knownStatus = "known"|"not_a_chain"|"unknown",
         chainID     = ...,  -- only when knownStatus == "known"
@@ -236,11 +240,12 @@ This is **not** the same as `AQL:GetQuest(questID)`. `GetQuest` is cache-only an
 
 ### Provider interface extension: `GetQuestBasicInfo`
 
-New **optional** method added to the provider interface. Providers that cannot implement it return nil (NullProvider, QuestWeaverProvider if it lacks static quest data).
+New **optional** method added to the provider interface. `NullProvider` does not implement this method and always returns nil. Callers guard with `provider.GetQuestBasicInfo and`.
 
 ```lua
 Provider:GetQuestBasicInfo(questID)
--- Returns { title, questLevel, requiredLevel } or nil.
+-- Returns { title, questLevel, requiredLevel, zone } or nil.
+-- All fields are optional (may be nil if the provider does not have them).
 ```
 
 **QuestieProvider implementation** — reads from `QuestieDB.GetQuest(questID)`:
@@ -250,19 +255,51 @@ Provider:GetQuestBasicInfo(questID)
 --   quest.name          = key 1  (string)
 --   quest.requiredLevel = key 4  (int, minimum player level to accept)
 --   quest.questLevel    = key 5  (int, quest difficulty level)
+--   quest.zoneOrSort    = key 17 (int: >0 = DBC AreaTable ID, <0 = QuestSort category, 0 = none)
+-- Zone name is resolved via C_Map.GetAreaInfo(quest.zoneOrSort) when zoneOrSort > 0.
+-- Negative values are quest-sort categories (e.g., "Fishing", "Epic") not geographic zones;
+-- zone is omitted for negative zoneOrSort values.
 function QuestieProvider:GetQuestBasicInfo(questID)
     if not self:IsAvailable() then return nil end
     local ok, quest = pcall(QuestieDB.GetQuest, questID)
     if not ok or not quest then return nil end
+    local zone
+    if quest.zoneOrSort and quest.zoneOrSort > 0 then
+        zone = C_Map.GetAreaInfo(quest.zoneOrSort)  -- returns string or nil
+    end
     return {
         title         = quest.name,
         questLevel    = quest.questLevel,
         requiredLevel = quest.requiredLevel,
+        zone          = zone,
     }
 end
 ```
 
-**NullProvider / QuestWeaverProvider** — return nil (method may be omitted; callers guard with `provider.GetQuestBasicInfo and`).
+**QuestWeaverProvider implementation** — reads from `qw.Quests[questID]`:
+
+```lua
+-- QuestWeaver quest objects have:
+--   quest.name        (string, quest title)
+--   quest.level       (int, quest difficulty level)
+--   quest.min_level   (int, minimum player level to accept)
+--   quest.zone        (string, zone name from data file)
+--   quest.source_zone (string, zone name set at load time from ZoneIndex)
+-- Prefer source_zone (set at load) over zone (from data file); both are human-readable strings.
+function QuestWeaverProvider:GetQuestBasicInfo(questID)
+    if not self:IsAvailable() then return nil end
+    local ok, quest = pcall(function() return qw.Quests[questID] end)
+    if not ok or not quest then return nil end
+    return {
+        title         = quest.name,
+        questLevel    = quest.level,
+        requiredLevel = quest.min_level,
+        zone          = quest.source_zone or quest.zone,
+    }
+end
+```
+
+**NullProvider** — does not implement `GetQuestBasicInfo`; returns nil. Method may be omitted entirely; callers guard with `provider.GetQuestBasicInfo and`.
 
 ---
 

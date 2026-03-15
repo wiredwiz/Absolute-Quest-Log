@@ -27,6 +27,7 @@
 | MODIFY | `AQL\AbsoluteQuestLog.toc` | Load WowQuestAPI.lua before other Core files |
 | MODIFY | `AQL\AbsoluteQuestLog.lua` | New public methods + enhanced HasCompletedQuest |
 | MODIFY | `AQL\Providers\QuestieProvider.lua` | Add `GetQuestBasicInfo` |
+| MODIFY | `AQL\Providers\QuestWeaverProvider.lua` | Add `GetQuestBasicInfo` |
 | MODIFY | `SQ\Core\Announcements.lua` | Replace `C_QuestLog.GetQuestInfo` (×4) + `C_QuestLog.IsQuestFlaggedCompleted` (×1) |
 | MODIFY | `SQ\Core\GroupData.lua` | Replace `C_QuestLog.GetQuestInfo` (×2) |
 | MODIFY | `SQ\UI\Tabs\PartyTab.lua` | Replace `C_QuestLog.GetQuestInfo` (×1) |
@@ -88,16 +89,22 @@ else  -- TBC Classic / TBC Anniversary (and Classic Era stub)
         -- Tier 1: log scan for richer data.
         -- GetQuestLogTitle returns: title, level, suggestedGroup, isHeader,
         --   isCollapsed, isComplete, frequency, questID
+        -- Header rows (isHeader == true) carry the zone/category name as `title`.
+        -- Track the most recent header to associate a zone with each quest.
         local numEntries = GetNumQuestLogEntries()
+        local currentZone
         for i = 1, numEntries do
             local title, level, suggestedGroup, isHeader, _, isComplete, _, qid = GetQuestLogTitle(i)
-            if qid == questID and not isHeader then
+            if isHeader then
+                currentZone = title
+            elseif qid == questID then
                 return {
                     questID        = questID,
                     title          = title,
                     level          = level,
                     suggestedGroup = tonumber(suggestedGroup) or 0,
                     isComplete     = (isComplete == 1 or isComplete == true),
+                    zone           = currentZone,
                 }
             end
         end
@@ -338,6 +345,7 @@ function AQL:GetQuestInfo(questID)
         title         = basicInfo and basicInfo.title         or nil,
         level         = basicInfo and basicInfo.questLevel    or nil,
         requiredLevel = basicInfo and basicInfo.requiredLevel or nil,
+        zone          = basicInfo and basicInfo.zone          or nil,
         chainInfo     = chainInfo,
     }
 end
@@ -425,7 +433,7 @@ Expected: `nil` on TBC Anniversary.
 
 **GetQuestInfo tier 3 — provider fallback for a quest not in your log (requires Questie):**
 ```
-/run local AQL = LibStub("AbsoluteQuestLog-1.0"); local r = AQL:GetQuestInfo(28); if r then print(r.title, r.level, r.requiredLevel) else print("nil") end
+/run local AQL = LibStub("AbsoluteQuestLog-1.0"); local r = AQL:GetQuestInfo(28); if r then print(r.title, r.level, r.requiredLevel, r.zone) else print("nil") end
 ```
 Expected: title string and level numbers from Questie's DB (quest 28 = "Trial of the Lake"). If Questie is not installed, expected: `nil`.
 
@@ -441,19 +449,27 @@ Expected: title string and level numbers from Questie's DB (quest 28 = "Trial of
 `QuestieProvider.lua` currently has three methods: `IsAvailable`, `GetChainInfo`, `GetQuestType`, `GetQuestFaction`. Add `GetQuestBasicInfo` after `GetChainInfo` (around line 174):
 
 ```lua
--- Returns { title, questLevel, requiredLevel } from QuestieDB, or nil.
+-- Returns { title, questLevel, requiredLevel, zone } from QuestieDB, or nil.
 -- Questie questKeys (tbcQuestDB.lua):
 --   quest.name          = key 1  (string, quest title)
 --   quest.requiredLevel = key 4  (int, minimum player level to accept)
 --   quest.questLevel    = key 5  (int, quest difficulty level)
+--   quest.zoneOrSort    = key 17 (int: >0 = DBC AreaTable ID, <0 = QuestSort category, 0 = none)
+-- Zone: C_Map.GetAreaInfo(quest.zoneOrSort) returns the localized zone name string when
+-- zoneOrSort > 0. Negative values are quest categories (not geographic zones) — omit.
 function QuestieProvider:GetQuestBasicInfo(questID)
     if not self:IsAvailable() then return nil end
     local ok, quest = pcall(QuestieDB.GetQuest, questID)
     if not ok or not quest then return nil end
+    local zone
+    if quest.zoneOrSort and quest.zoneOrSort > 0 then
+        zone = C_Map.GetAreaInfo(quest.zoneOrSort)  -- returns string or nil
+    end
     return {
         title         = quest.name,
         questLevel    = quest.questLevel,
         requiredLevel = quest.requiredLevel,
+        zone          = zone,
     }
 end
 ```
@@ -470,9 +486,60 @@ git commit -m "feat: add QuestieProvider:GetQuestBasicInfo for title/level looku
 
 ```
 /reload
-/run local AQL = LibStub("AbsoluteQuestLog-1.0"); local p = AQL.provider; if p and p.GetQuestBasicInfo then local r = p:GetQuestBasicInfo(28); if r then print(r.title, r.questLevel, r.requiredLevel) else print("nil from provider") end else print("provider missing method") end
+/run local AQL = LibStub("AbsoluteQuestLog-1.0"); local p = AQL.provider; if p and p.GetQuestBasicInfo then local r = p:GetQuestBasicInfo(28); if r then print(r.title, r.questLevel, r.requiredLevel, r.zone) else print("nil from provider") end else print("provider missing method") end
 ```
-Expected (with Questie): title "Trial of the Lake", level numbers.
+Expected (with Questie): title "Trial of the Lake", level numbers, and a zone name string.
+
+---
+
+### Task 3c: Add `GetQuestBasicInfo` to QuestWeaverProvider
+
+**Files:**
+- Modify: `D:\Projects\Wow Addons\Absolute-Quest-Log\Providers\QuestWeaverProvider.lua`
+
+- [ ] **Step 1: Add `GetQuestBasicInfo` after `IsAvailable` or after an existing method**
+
+`QuestWeaverProvider.lua` accesses quest data via `qw.Quests[questID]`. Quest objects have:
+- `quest.name` (string, quest title)
+- `quest.level` (int, quest difficulty level)
+- `quest.min_level` (int, minimum player level to accept)
+- `quest.zone` (string, zone name from data file)
+- `quest.source_zone` (string, zone name set at load time from ZoneIndex — prefer this)
+
+```lua
+-- Returns { title, questLevel, requiredLevel, zone } from QuestWeaver's static DB, or nil.
+-- quest.source_zone is set at load time from ZoneIndex (same string format as quest.zone).
+-- Prefer source_zone; fall back to zone if source_zone is nil.
+function QuestWeaverProvider:GetQuestBasicInfo(questID)
+    if not self:IsAvailable() then return nil end
+    local ok, quest = pcall(function() return qw.Quests[questID] end)
+    if not ok or not quest then return nil end
+    return {
+        title         = quest.name,
+        questLevel    = quest.level,
+        requiredLevel = quest.min_level,
+        zone          = quest.source_zone or quest.zone,
+    }
+end
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+cd "D:\Projects\Wow Addons\Absolute-Quest-Log"
+git add Providers\QuestWeaverProvider.lua
+git commit -m "feat: add QuestWeaverProvider:GetQuestBasicInfo for title/level/zone lookup"
+```
+
+- [ ] **Step 3: In-game smoke test**
+
+Switch to QuestWeaver as the provider (or test if it's active), then:
+
+```
+/reload
+/run local AQL = LibStub("AbsoluteQuestLog-1.0"); local p = AQL.provider; if p and p.GetQuestBasicInfo then local r = p:GetQuestBasicInfo(28); if r then print(r.title, r.questLevel, r.requiredLevel, r.zone) else print("nil from provider") end else print("provider missing method") end
+```
+Expected (with QuestWeaver): title, level numbers, and a zone name string.
 
 ---
 
