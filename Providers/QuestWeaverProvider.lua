@@ -100,9 +100,10 @@ function QuestWeaverProvider:GetQuestFaction(questID)
 end
 
 function QuestWeaverProvider:GetQuestBasicInfo(questID)
-    if not self:IsAvailable() then return nil end
-    local ok, quest = pcall(function() return qw.Quests[questID] end)
-    if not ok or not quest then return nil end
+    local qw = _G["QuestWeaver"]
+    if not qw then return nil end
+    local quest = qw.Quests and qw.Quests[questID]
+    if not quest then return nil end
     return {
         title         = quest.name,
         questLevel    = quest.level,
