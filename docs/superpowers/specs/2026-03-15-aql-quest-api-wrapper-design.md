@@ -84,7 +84,7 @@ Underlying: iterates `GetNumQuestLogEntries()`, calling `GetQuestLogTitle(i)` fo
 
 #### `WowQuestAPI.TrackQuest(questID)` / `WowQuestAPI.UntrackQuest(questID)`
 
-Resolve questID to log index, then call the TBC tracking globals.
+Resolve questID to log index, then call the TBC tracking globals. These are thin wrappers — no watch-count enforcement.
 
 ```lua
 -- TBC underlying APIs:
@@ -186,12 +186,14 @@ AQL:HasCompletedQuest(questID)  --> bool
 
 #### `AQL:TrackQuest(questID)` / `AQL:UntrackQuest(questID)`
 
-Delegates to `WowQuestAPI.TrackQuest` / `WowQuestAPI.UntrackQuest` (which handles questID → log index resolution).
+`AQL:TrackQuest` enforces the TBC watch cap before calling through. Returns `true` if the quest was tracked, `false` if the cap was already reached.
 
 ```lua
-AQL:TrackQuest(questID)    --> void
-AQL:UntrackQuest(questID)  --> void
+AQL:TrackQuest(questID)    --> bool  -- false if GetNumQuestWatches() >= MAX_WATCHABLE_QUESTS
+AQL:UntrackQuest(questID)  --> void  -- always delegates; no cap check needed
 ```
+
+`MAX_WATCHABLE_QUESTS` is a WoW global (value: 5 on TBC). `GetNumQuestWatches()` returns the current count. Both are read at call time; no caching.
 
 #### `AQL:IsUnitOnQuest(questID, unit)`
 
@@ -233,7 +235,7 @@ Social Quest already declares `AbsoluteQuestLog` as a dependency in its TOC (`##
 ## Out of Scope
 
 - Chat-link generation (`GetQuestLink`) — already in AQL; no change needed.
-- Quest watch count limits — internal AQL concern; not exposed.
+- Quest watch count eviction — `AQL:TrackQuest` returns `false` at cap but does not evict the oldest watch to make room.
 - Classic Era implementation — version branches are stubs returning nil; implementations added when Classic Era support is a target.
 - Retail `GetQuestInfo` — the Retail branch returns `{ questID = questID, title = info.title }` (extracting title from the info table); full Retail support is not a target for this phase.
 - Migrating AQL internal files — `Core\QuestCache.lua` and `Providers\*.lua` continue to call WoW globals directly; their migration is deferred.
