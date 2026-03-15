@@ -26,6 +26,7 @@
 | CREATE | `AQL\Core\WowQuestAPI.lua` | All raw WoW quest globals; version-branched |
 | MODIFY | `AQL\AbsoluteQuestLog.toc` | Load WowQuestAPI.lua before other Core files |
 | MODIFY | `AQL\AbsoluteQuestLog.lua` | New public methods + enhanced HasCompletedQuest |
+| MODIFY | `AQL\Providers\QuestieProvider.lua` | Add `GetQuestBasicInfo` |
 | MODIFY | `SQ\Core\Announcements.lua` | Replace `C_QuestLog.GetQuestInfo` (×4) + `C_QuestLog.IsQuestFlaggedCompleted` (×1) |
 | MODIFY | `SQ\Core\GroupData.lua` | Replace `C_QuestLog.GetQuestInfo` (×2) |
 | MODIFY | `SQ\UI\Tabs\PartyTab.lua` | Replace `C_QuestLog.GetQuestInfo` (×1) |
@@ -298,22 +299,53 @@ After the `-- AQL:RegisterCallback / AQL:UnregisterCallback` comment at the end 
 -- Public API: WowQuestAPI-backed Extended Queries
 ------------------------------------------------------------------------
 
--- Returns the full AQL cache snapshot when cached; falls back to
--- WowQuestAPI.GetQuestInfo which returns { questID, title } only.
--- Returns nil when neither source has data.
--- Contrast with AQL:GetQuest which is cache-only (returns nil when uncached).
+-- Three-tier resolution. Contrast with AQL:GetQuest which is cache-only.
+--   Tier 1: AQL QuestCache (full normalized snapshot)
+--   Tier 2: WowQuestAPI log scan → { questID, title, level, suggestedGroup, isComplete }
+--           or title-only { questID, title } when not in log
+--   Tier 3: AQL.provider:GetQuestBasicInfo → { title, questLevel, requiredLevel }
+--           merged with AQL.provider:GetChainInfo → chainInfo (chainID, step, length)
+-- Returns nil only when all three tiers have no data.
 function AQL:GetQuestInfo(questID)
+    -- Tier 1: cache.
     local cached = self.QuestCache and self.QuestCache:Get(questID)
     if cached then return cached end
-    return WowQuestAPI.GetQuestInfo(questID)
+
+    -- Tier 2: WoW log scan / title fallback.
+    local result = WowQuestAPI.GetQuestInfo(questID)
+    if result then return result end
+
+    -- Tier 3: provider (Questie / QuestWeaver).
+    local provider = self.provider
+    if not provider then return nil end
+
+    local basicInfo
+    if provider.GetQuestBasicInfo then
+        local ok, info = pcall(provider.GetQuestBasicInfo, provider, questID)
+        if ok and info then basicInfo = info end
+    end
+
+    local chainInfo = { knownStatus = "unknown" }
+    if provider.GetChainInfo then
+        local ok, ci = pcall(provider.GetChainInfo, provider, questID)
+        if ok and ci then chainInfo = ci end
+    end
+
+    if not basicInfo and chainInfo.knownStatus == "unknown" then return nil end
+
+    return {
+        questID       = questID,
+        title         = basicInfo and basicInfo.title         or nil,
+        level         = basicInfo and basicInfo.questLevel    or nil,
+        requiredLevel = basicInfo and basicInfo.requiredLevel or nil,
+        chainInfo     = chainInfo,
+    }
 end
 
 -- Returns the title string for any questID, or nil.
--- Cache first; WowQuestAPI title-lookup fallback.
+-- Delegates to GetQuestInfo and extracts .title.
 function AQL:GetQuestTitle(questID)
-    local cached = self.QuestCache and self.QuestCache:Get(questID)
-    if cached then return cached.title end
-    local info = WowQuestAPI.GetQuestInfo(questID)
+    local info = self:GetQuestInfo(questID)
     return info and info.title or nil
 end
 
@@ -354,7 +386,7 @@ end
 ```bash
 cd "D:\Projects\Wow Addons\Absolute-Quest-Log"
 git add AbsoluteQuestLog.lua
-git commit -m "feat: add AQL public methods GetQuestInfo, GetQuestTitle, GetQuestObjectives, TrackQuest, UntrackQuest, IsUnitOnQuest; enhance HasCompletedQuest with WowQuestAPI fallback"
+git commit -m "feat: add AQL public methods GetQuestInfo, GetQuestTitle, GetQuestObjectives, TrackQuest, UntrackQuest, IsUnitOnQuest; enhance HasCompletedQuest; three-tier resolution in GetQuestInfo"
 ```
 
 - [ ] **Step 4: In-game smoke tests**
@@ -390,6 +422,57 @@ Expected: `true` (or `false` if already at 5 watched quests).
 /run local AQL = LibStub("AbsoluteQuestLog-1.0"); local id = next(AQL:GetAllQuests()); print(AQL:IsUnitOnQuest(id, "player"))
 ```
 Expected: `nil` on TBC Anniversary.
+
+**GetQuestInfo tier 3 — provider fallback for a quest not in your log (requires Questie):**
+```
+/run local AQL = LibStub("AbsoluteQuestLog-1.0"); local r = AQL:GetQuestInfo(28); if r then print(r.title, r.level, r.requiredLevel) else print("nil") end
+```
+Expected: title string and level numbers from Questie's DB (quest 28 = "Trial of the Lake"). If Questie is not installed, expected: `nil`.
+
+---
+
+### Task 3b: Add `GetQuestBasicInfo` to QuestieProvider
+
+**Files:**
+- Modify: `D:\Projects\Wow Addons\Absolute-Quest-Log\Providers\QuestieProvider.lua`
+
+- [ ] **Step 1: Add `GetQuestBasicInfo` after `GetChainInfo`**
+
+`QuestieProvider.lua` currently has three methods: `IsAvailable`, `GetChainInfo`, `GetQuestType`, `GetQuestFaction`. Add `GetQuestBasicInfo` after `GetChainInfo` (around line 174):
+
+```lua
+-- Returns { title, questLevel, requiredLevel } from QuestieDB, or nil.
+-- Questie questKeys (tbcQuestDB.lua):
+--   quest.name          = key 1  (string, quest title)
+--   quest.requiredLevel = key 4  (int, minimum player level to accept)
+--   quest.questLevel    = key 5  (int, quest difficulty level)
+function QuestieProvider:GetQuestBasicInfo(questID)
+    if not self:IsAvailable() then return nil end
+    local ok, quest = pcall(QuestieDB.GetQuest, questID)
+    if not ok or not quest then return nil end
+    return {
+        title         = quest.name,
+        questLevel    = quest.questLevel,
+        requiredLevel = quest.requiredLevel,
+    }
+end
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+cd "D:\Projects\Wow Addons\Absolute-Quest-Log"
+git add Providers\QuestieProvider.lua
+git commit -m "feat: add QuestieProvider:GetQuestBasicInfo for title/level lookup by questID"
+```
+
+- [ ] **Step 3: In-game smoke test**
+
+```
+/reload
+/run local AQL = LibStub("AbsoluteQuestLog-1.0"); local p = AQL.provider; if p and p.GetQuestBasicInfo then local r = p:GetQuestBasicInfo(28); if r then print(r.title, r.questLevel, r.requiredLevel) else print("nil from provider") end else print("provider missing method") end
+```
+Expected (with Questie): title "Trial of the Lake", level numbers.
 
 ---
 

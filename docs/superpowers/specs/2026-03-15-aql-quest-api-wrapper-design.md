@@ -191,22 +191,88 @@ end
 
 #### `AQL:GetQuestInfo(questID)`
 
-Returns the full AQL cache snapshot if the quest is in the cache. If not cached, falls back to `WowQuestAPI.GetQuestInfo(questID)` which returns only `{ questID, title }`. Returns nil if neither source has data.
+Three-tier resolution. Returns nil only when all three tiers have no data.
 
 ```lua
 AQL:GetQuestInfo(questID)  --> table | nil
--- Full snapshot when cached; { questID, title } when only WowQuestAPI knows; nil otherwise.
 ```
 
-This is **not** the same as `AQL:GetQuest(questID)`. `GetQuest` returns nil for any quest not in the cache. `GetQuestInfo` tries the WoW API as a fallback. Use `GetQuestInfo` when you need a title for any questID (e.g., a quest in a party member's log but not yours). Use `GetQuest` when you specifically want to know if AQL has a full snapshot.
+**Tier 1 — AQL QuestCache (fastest)**
+
+Returns the full normalized snapshot immediately if cached. All fields present.
+
+**Tier 2 — WowQuestAPI log scan / title fallback**
+
+Called only on cache miss. Returns a partial table (see `WowQuestAPI.GetQuestInfo` in Section 1). Guaranteed fields: `questID`, `title`. Conditional fields when quest is in log: `level`, `suggestedGroup`, `isComplete`.
+
+**Tier 3 — Provider (Questie / QuestWeaver)**
+
+Called only when tiers 1 and 2 both return nil (quest not in player's log and not cached). Uses `AQL.provider` which is already set at login. Two provider calls are made and their results merged:
+
+1. `provider:GetQuestBasicInfo(questID)` — new optional provider method (see below). Returns `{ title, questLevel, requiredLevel }` from the provider's static database, or nil.
+2. `provider:GetChainInfo(questID)` — existing method. If `knownStatus == "known"`, `chainID`, `step`, and `length` are merged into the result.
+
+Both calls are wrapped in `pcall`. If the provider returns nil for both, `AQL:GetQuestInfo` returns nil.
+
+Tier 3 result shape (fields vary by what the provider knows):
+```lua
+{
+    questID       = questID,
+    title         = quest.name,          -- from GetQuestBasicInfo
+    level         = quest.questLevel,    -- from GetQuestBasicInfo
+    requiredLevel = quest.requiredLevel, -- from GetQuestBasicInfo
+    chainInfo     = {                    -- from GetChainInfo, always present
+        knownStatus = "known"|"not_a_chain"|"unknown",
+        chainID     = ...,  -- only when knownStatus == "known"
+        step        = ...,
+        length      = ...,
+    },
+}
+```
+
+This is **not** the same as `AQL:GetQuest(questID)`. `GetQuest` is cache-only and returns nil for uncached quests. `GetQuestInfo` is the enriched fallback path. Use `GetQuestInfo` when you need data for any questID regardless of whether the player has it active.
+
+---
+
+### Provider interface extension: `GetQuestBasicInfo`
+
+New **optional** method added to the provider interface. Providers that cannot implement it return nil (NullProvider, QuestWeaverProvider if it lacks static quest data).
+
+```lua
+Provider:GetQuestBasicInfo(questID)
+-- Returns { title, questLevel, requiredLevel } or nil.
+```
+
+**QuestieProvider implementation** — reads from `QuestieDB.GetQuest(questID)`:
+
+```lua
+-- Questie questKeys (from tbcQuestDB.lua):
+--   quest.name          = key 1  (string)
+--   quest.requiredLevel = key 4  (int, minimum player level to accept)
+--   quest.questLevel    = key 5  (int, quest difficulty level)
+function QuestieProvider:GetQuestBasicInfo(questID)
+    if not self:IsAvailable() then return nil end
+    local ok, quest = pcall(QuestieDB.GetQuest, questID)
+    if not ok or not quest then return nil end
+    return {
+        title         = quest.name,
+        questLevel    = quest.questLevel,
+        requiredLevel = quest.requiredLevel,
+    }
+end
+```
+
+**NullProvider / QuestWeaverProvider** — return nil (method may be omitted; callers guard with `provider.GetQuestBasicInfo and`).
+
+---
 
 #### `AQL:GetQuestTitle(questID)`
 
-Returns just the title string, or nil.
+Returns just the title string, or nil. Delegates to `AQL:GetQuestInfo` and extracts `.title`.
 
 ```lua
 AQL:GetQuestTitle(questID)  --> string | nil
--- AQL cache first → WowQuestAPI.GetQuestInfo(questID).title fallback
+-- AQL cache → WowQuestAPI log scan / title fallback → provider GetQuestBasicInfo
 ```
 
 #### `AQL:GetQuestObjectives(questID)`
