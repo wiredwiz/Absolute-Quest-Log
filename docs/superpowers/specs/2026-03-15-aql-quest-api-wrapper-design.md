@@ -9,7 +9,7 @@
 
 Introduce a two-layer abstraction so that (a) all raw WoW quest API calls are centralized in one file for easy version-branching and (b) callers of AQL never touch WoW globals directly.
 
-**Goal:** All WoW quest API calls live in `Core/WowQuestAPI.lua`. AQL exposes new public methods that delegate to `WowQuestAPI`. Social Quest (and any other consumer) calls only AQL or WowQuestAPI — never WoW globals.
+**Goal:** All WoW quest API calls live in `Core\WowQuestAPI.lua`. AQL exposes new public methods that delegate to `WowQuestAPI`. Social Quest (and any other consumer) calls only AQL or WowQuestAPI — never WoW globals.
 
 ---
 
@@ -17,38 +17,89 @@ Introduce a two-layer abstraction so that (a) all raw WoW quest API calls are ce
 
 ### Location
 
-`Core/WowQuestAPI.lua` — loaded before AQL's core files.
+`Core\WowQuestAPI.lua` — listed in the TOC before any AQL file that uses it.
+
+### Namespace Creation
+
+```lua
+WowQuestAPI = WowQuestAPI or {}
+```
+
+Plain global table. No LibStub, no AceAddon, no `:OnEnable`.
 
 ### Purpose
 
-A pure namespace of version-normalized functions. No addon state, no AceAddon, no LibStub. If Classic Era or Retail support is added later, only this file changes.
+Stateless, thin wrappers around WoW globals. No caching, no addon state, no event handling. If Classic Era or Retail support is added later, only this file changes.
 
 ### API Surface
 
+#### `WowQuestAPI.GetQuestInfo(questID)`
+
+Returns a minimal table with only the fields that can be derived from a single `C_QuestLog.GetQuestInfo` call **without** requiring a log-index selection or additional queries. On TBC 20505, `C_QuestLog.GetQuestInfo(questID)` returns just a title string.
+
 ```lua
--- Returns a normalized table or nil.
--- On TBC 20505 uses C_QuestLog.GetQuestInfo() for title.
--- { questID, title, level, zone, suggestedGroup, isComplete, isFailed,
---   isTracked, logIndex, timerSeconds, snapshotTime, objectives }
-WowQuestAPI.GetQuestInfo(questID)  --> table | nil
+-- TBC implementation:
+-- C_QuestLog.GetQuestInfo(questID) → title string or nil
+-- Returns { questID = questID, title = title } or nil (if title is nil)
+WowQuestAPI.GetQuestInfo(questID)  --> { questID = questID, title = title } | nil
 
--- Returns the objectives array for an active quest by log index.
--- Each entry: { text, numFulfilled, numRequired, isFinished }
+-- Retail implementation:
+-- C_QuestLog.GetQuestInfo(questID) → info table with .title field
+-- Returns { questID = questID, title = info.title } or nil (if info is nil)
+```
+
+This is a **title-lookup fallback** for quests not in the local log (e.g., a quest mentioned by a party member). Callers that need the full snapshot (level, zone, objectives, timerSeconds, etc.) must use the AQL cache via `AQL:GetQuestInfo`.
+
+#### `WowQuestAPI.GetQuestObjectives(questID)`
+
+Wraps `C_QuestLog.GetQuestObjectives(questID)`. Returns the raw objectives array for an active quest by questID. This is a thin pass-through — field names match the WoW API exactly. On TBC 20505 each entry contains: `{ text, type, finished, numFulfilled, numRequired }`. Returns an empty table if the quest is not in the log.
+
+Note: The AQL cache normalizes these fields (e.g., `isFinished` instead of `finished`). `WowQuestAPI.GetQuestObjectives` returns raw/unnormalized data; callers that need the normalized form should use the AQL cache (`AQL:GetQuestObjectives`) which applies the normalization.
+
+```lua
 WowQuestAPI.GetQuestObjectives(questID)  --> table (may be empty)
+```
 
--- Wraps C_QuestLog.IsQuestFlaggedCompleted (TBC) / IsQuestFlaggedCompleted (Classic).
-WowQuestAPI.IsQuestFlaggedCompleted(questID)  --> bool
+#### `WowQuestAPI.IsQuestFlaggedCompleted(questID)`
 
--- Returns the 1-based quest log index, or nil if not in log.
+```lua
+-- TBC/TBC-Anniversary:
+WowQuestAPI.IsQuestFlaggedCompleted(questID)
+  --> C_QuestLog.IsQuestFlaggedCompleted(questID)  -- bool
+
+-- Classic Era (future stub):
+WowQuestAPI.IsQuestFlaggedCompleted(questID)
+  --> IsQuestFlaggedCompleted(questID)  -- legacy global
+```
+
+#### `WowQuestAPI.GetQuestLogIndex(questID)`
+
+Scans the quest log to find the 1-based log index for the given questID. Returns nil if the quest is not in the player's log.
+
+```lua
 WowQuestAPI.GetQuestLogIndex(questID)  --> number | nil
+```
 
--- Adds/removes the quest timer/tracker.  No-op if quest not in log.
+Underlying: iterates `GetNumQuestLogEntries()`, calling `GetQuestLogTitle(i)` for each entry and matching on the 8th return value of `GetQuestLogTitle`, which is the questID. Do not use `SelectQuestLogEntry`/`GetQuestID` — that approach has side-effects.
+
+#### `WowQuestAPI.TrackQuest(questID)` / `WowQuestAPI.UntrackQuest(questID)`
+
+Resolve questID to log index, then call the TBC tracking globals.
+
+```lua
+-- TBC underlying APIs:
+--   AddQuestWatch(logIndex)    -- adds timer/tracker
+--   RemoveQuestWatch(logIndex) -- removes
+-- No-op if questID is not in the log.
 WowQuestAPI.TrackQuest(questID)    --> void
 WowQuestAPI.UntrackQuest(questID)  --> void
+```
 
--- Returns true when `unit` is on questID.
--- Returns nil on TBC (UnitIsOnQuest does not exist).
--- Returns bool on Retail.
+#### `WowQuestAPI.IsUnitOnQuest(questID, unit)`
+
+```lua
+-- TBC: UnitIsOnQuest does not exist → always nil.
+-- Retail: UnitIsOnQuest(unit, questID) → bool.
 WowQuestAPI.IsUnitOnQuest(questID, unit)  --> bool | nil
 ```
 
@@ -64,7 +115,7 @@ if TOC >= 100000 then          -- Retail
     function WowQuestAPI.IsQuestFlaggedCompleted(questID)
         return C_QuestLog.IsQuestFlaggedCompleted(questID)
     end
-elseif TOC >= 20000 then       -- TBC Classic
+elseif TOC >= 20000 then       -- TBC Classic (including TBC Anniversary)
     function WowQuestAPI.IsUnitOnQuest(questID, unit)
         return nil             -- API does not exist in TBC
     end
@@ -76,60 +127,83 @@ else                           -- Classic Era (future)
         return nil
     end
     function WowQuestAPI.IsQuestFlaggedCompleted(questID)
-        return IsQuestFlaggedCompleted(questID)
+        return IsQuestFlaggedCompleted(questID)  -- legacy global
     end
 end
 ```
-
-### Non-Goals
-
-- No caching — AQL handles caching.
-- No event handling.
-- No addon lifecycle (no `:OnEnable`, no LibStub).
 
 ---
 
 ## Section 2: New AQL Public Methods
 
-AQL already maintains an internal snapshot cache (`self.quests`). The new public methods delegate to that cache first; `WowQuestAPI` is the fallback for quests not in the cache (e.g., fetching a title by questID for a quest another player mentioned).
+### Relationship to existing API
 
-### Method Signatures
+| Existing method | New method | Relationship |
+|----------------|------------|--------------|
+| `AQL:GetQuest(questID)` | `AQL:GetQuestInfo(questID)` | `GetQuestInfo` is a **new method with different semantics** (see below). `GetQuest` is kept as-is (cache-only, no fallback) and is not deprecated. |
+| `AQL:HasCompletedQuest(questID)` | `AQL:IsQuestEverCompleted(questID)` | `IsQuestEverCompleted` is a superset: checks HistoryCache first (same as `HasCompletedQuest`), then falls back to `WowQuestAPI.IsQuestFlaggedCompleted`. `HasCompletedQuest` is kept as-is; callers that want the richer check use the new method. |
+| `AQL:GetObjectives(questID)` / `AQL:GetObjective(questID, i)` | `AQL:GetQuestObjectives(questID)` | The existing methods are kept unchanged. `GetQuestObjectives` is a new method with WowQuestAPI fallback; `GetObjectives` remains cache-only. |
+
+### New Method Signatures
+
+#### `AQL:GetQuestInfo(questID)`
+
+Returns the full AQL cache snapshot if the quest is in the cache. If not cached, falls back to `WowQuestAPI.GetQuestInfo(questID)` which returns only `{ questID, title }`. Returns nil if neither source has data.
 
 ```lua
--- Returns AQL cache entry for questID, or nil if not tracked.
--- This replaces the current AQL:GetQuest(questID) for callers that need a
--- full snapshot. The name matches WowQuestAPI for discoverability.
 AQL:GetQuestInfo(questID)  --> table | nil
-
--- Returns the quest title string, or nil.
--- Cache first; falls back to WowQuestAPI.GetQuestInfo(questID).title.
-AQL:GetQuestTitle(questID)  --> string | nil
-
--- Returns objectives array (may be empty).
--- Cache first; falls back to WowQuestAPI.GetQuestObjectives(questID).
-AQL:GetQuestObjectives(questID)  --> table
-
--- True when questID is in the historical completion set OR
--- WowQuestAPI.IsQuestFlaggedCompleted returns true.
-AQL:IsQuestEverCompleted(questID)  --> bool
-
--- Delegates directly to WowQuestAPI; applies questID → logIndex resolution.
-AQL:TrackQuest(questID)    --> void
-AQL:UntrackQuest(questID)  --> void
-
--- Delegates to WowQuestAPI.IsUnitOnQuest; returns nil on TBC.
-AQL:IsUnitOnQuest(questID, unit)  --> bool | nil
+-- Full snapshot when cached; { questID, title } when only WowQuestAPI knows; nil otherwise.
 ```
 
-### Backward Compatibility
+This is **not** the same as `AQL:GetQuest(questID)`. `GetQuest` returns nil for any quest not in the cache. `GetQuestInfo` tries the WoW API as a fallback. Use `GetQuestInfo` when you need a title for any questID (e.g., a quest in a party member's log but not yours). Use `GetQuest` when you specifically want to know if AQL has a full snapshot.
 
-`AQL:GetQuest(questID)` is **not removed** — it is kept as an alias for `AQL:GetQuestInfo(questID)` during the transition period. Callers can migrate at their own pace; once Social Quest is fully migrated the alias may be removed.
+#### `AQL:GetQuestTitle(questID)`
+
+Returns just the title string, or nil.
+
+```lua
+AQL:GetQuestTitle(questID)  --> string | nil
+-- AQL cache first → WowQuestAPI.GetQuestInfo(questID).title fallback
+```
+
+#### `AQL:GetQuestObjectives(questID)`
+
+Returns objectives array (may be empty).
+
+```lua
+AQL:GetQuestObjectives(questID)  --> table
+-- AQL cache first → WowQuestAPI.GetQuestObjectives(questID) fallback
+```
+
+#### `AQL:IsQuestEverCompleted(questID)`
+
+```lua
+AQL:IsQuestEverCompleted(questID)  --> bool
+-- HistoryCache (same as HasCompletedQuest) OR WowQuestAPI.IsQuestFlaggedCompleted
+```
+
+#### `AQL:TrackQuest(questID)` / `AQL:UntrackQuest(questID)`
+
+Delegates to `WowQuestAPI.TrackQuest` / `WowQuestAPI.UntrackQuest` (which handles questID → log index resolution).
+
+```lua
+AQL:TrackQuest(questID)    --> void
+AQL:UntrackQuest(questID)  --> void
+```
+
+#### `AQL:IsUnitOnQuest(questID, unit)`
+
+Delegates to `WowQuestAPI.IsUnitOnQuest`. Returns nil on TBC.
+
+```lua
+AQL:IsUnitOnQuest(questID, unit)  --> bool | nil
+```
 
 ---
 
 ## Section 3: Social Quest Migration
 
-After the new AQL methods and WowQuestAPI are in place, Social Quest removes every direct WoW quest API call and replaces them with AQL or WowQuestAPI calls.
+After the new AQL methods and WowQuestAPI are in place, Social Quest removes every direct WoW quest API call and replaces them with AQL calls.
 
 ### Call Sites to Migrate
 
@@ -142,11 +216,15 @@ After the new AQL methods and WowQuestAPI are in place, Social Quest removes eve
 | `UI/Tabs/PartyTab.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
 | `UI/Tabs/SharedTab.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
 
-After migration, `Core/WowQuestAPI.lua` is the **only** file in either project that references WoW quest globals.
+After migration, Social Quest will contain no direct WoW quest API calls. AQL internal files (`Core\QuestCache.lua`, `Providers\*.lua`) are **not** migrated in this phase — they continue to call WoW globals directly. Migrating AQL internals to use WowQuestAPI is deferred to a future phase. The invariant for this phase is: **Social Quest is the only consumer addon that never calls WoW quest globals.**
 
 ### Load Order
 
-`WowQuestAPI.lua` must be listed in `AbsoluteQuestLog.toc` before any AQL file that calls it.
+`Core\WowQuestAPI.lua` must be listed in `AbsoluteQuestLog.toc` before any AQL file that calls it.
+
+### TOC Dependencies
+
+Social Quest already declares `AbsoluteQuestLog` as a dependency in its TOC (`## Dependencies`). No Social Quest TOC changes are needed — AQL's new public methods are available as soon as AQL loads.
 
 ---
 
@@ -155,3 +233,6 @@ After migration, `Core/WowQuestAPI.lua` is the **only** file in either project t
 - Chat-link generation (`GetQuestLink`) — already in AQL; no change needed.
 - Quest watch count limits — internal AQL concern; not exposed.
 - Classic Era implementation — version branches are stubs returning nil; implementations added when Classic Era support is a target.
+- Retail `GetQuestInfo` — the Retail branch returns `{ questID = questID, title = info.title }` (extracting title from the info table); full Retail support is not a target for this phase.
+- Migrating AQL internal files — `Core\QuestCache.lua` and `Providers\*.lua` continue to call WoW globals directly; their migration is deferred.
+- Refactoring `QuestCache:_buildEntry` — the internal snapshot builder is unchanged; `WowQuestAPI` does not duplicate its work.
