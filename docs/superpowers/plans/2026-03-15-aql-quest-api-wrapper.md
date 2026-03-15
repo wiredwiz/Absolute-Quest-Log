@@ -58,19 +58,51 @@ local _TOC = select(4, GetBuildInfo())
 
 ------------------------------------------------------------------------
 -- WowQuestAPI.GetQuestInfo(questID)
--- Returns { questID = questID, title = title } or nil.
--- TBC 20505: C_QuestLog.GetQuestInfo(questID) returns a title string.
--- Retail:    C_QuestLog.GetQuestInfo(questID) returns an info table.
+-- Two-tier resolution. Returns nil when no source has data.
+-- Guaranteed fields: questID, title.
+-- Conditional fields (only when quest is in player's log): level,
+--   suggestedGroup, isComplete.
+-- TBC: tier-1 log scan (GetQuestLogTitle), tier-2 C_QuestLog.GetQuestInfo.
+-- Retail: single C_QuestLog.GetQuestInfo call returns full info table.
 ------------------------------------------------------------------------
 
 if _TOC >= 100000 then  -- Retail
     function WowQuestAPI.GetQuestInfo(questID)
         local info = C_QuestLog.GetQuestInfo(questID)
         if not info or not info.title then return nil end
-        return { questID = questID, title = info.title }
+        return {
+            questID        = questID,
+            title          = info.title,
+            level          = info.level,
+            suggestedGroup = info.suggestedGroup or 0,
+            isComplete     = info.isComplete == 1,
+            isTask         = info.isTask,
+            isBounty       = info.isBounty,
+            isStory        = info.isStory,
+            campaignID     = info.campaignID,
+        }
     end
 else  -- TBC Classic / TBC Anniversary (and Classic Era stub)
     function WowQuestAPI.GetQuestInfo(questID)
+        -- Tier 1: log scan for richer data.
+        -- GetQuestLogTitle returns: title, level, suggestedGroup, isHeader,
+        --   isCollapsed, isComplete, frequency, questID
+        local numEntries = GetNumQuestLogEntries()
+        for i = 1, numEntries do
+            local title, level, suggestedGroup, isHeader, _, isComplete, _, qid = GetQuestLogTitle(i)
+            if qid == questID and not isHeader then
+                return {
+                    questID        = questID,
+                    title          = title,
+                    level          = level,
+                    suggestedGroup = tonumber(suggestedGroup) or 0,
+                    isComplete     = (isComplete == 1 or isComplete == true),
+                }
+            end
+        end
+
+        -- Tier 2: quest not in log — title-only fallback.
+        -- C_QuestLog.GetQuestInfo(questID) returns a title string or nil on TBC.
         local title = C_QuestLog.GetQuestInfo(questID)
         if not title then return nil end
         return { questID = questID, title = title }

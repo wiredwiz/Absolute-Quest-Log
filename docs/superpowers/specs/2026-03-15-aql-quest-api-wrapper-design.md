@@ -35,20 +35,63 @@ Stateless, thin wrappers around WoW globals. No caching, no addon state, no even
 
 #### `WowQuestAPI.GetQuestInfo(questID)`
 
-Returns a minimal table with only the fields that can be derived from a single `C_QuestLog.GetQuestInfo` call **without** requiring a log-index selection or additional queries. On TBC 20505, `C_QuestLog.GetQuestInfo(questID)` returns just a title string.
+Two-tier resolution. Returns nil when no source has data.
+
+**Guaranteed fields** (always present on non-nil return):
+- `questID`, `title`
+
+**Conditional fields** (only present when the quest is in the player's log):
+- `level`, `suggestedGroup`, `isComplete`
+
+**TBC implementation — tier 1: log scan**
+
+Iterates `GetQuestLogTitle` to find the questID (8th return value). When found, returns the richer table using the data already available from that call (no `SelectQuestLogEntry` required):
 
 ```lua
--- TBC implementation:
--- C_QuestLog.GetQuestInfo(questID) → title string or nil
--- Returns { questID = questID, title = title } or nil (if title is nil)
-WowQuestAPI.GetQuestInfo(questID)  --> { questID = questID, title = title } | nil
-
--- Retail implementation:
--- C_QuestLog.GetQuestInfo(questID) → info table with .title field
--- Returns { questID = questID, title = info.title } or nil (if info is nil)
+-- GetQuestLogTitle(i) returns:
+--   title, level, suggestedGroup, isHeader, isCollapsed, isComplete, frequency, questID
+-- isComplete: 1 = done (not yet turned in), false/nil = in progress
+{
+    questID        = questID,
+    title          = title,
+    level          = level,
+    suggestedGroup = tonumber(suggestedGroup) or 0,
+    isComplete     = (isComplete == 1 or isComplete == true),
+}
 ```
 
-This is a **title-lookup fallback** for quests not in the local log (e.g., a quest mentioned by a party member). Callers that need the full snapshot (level, zone, objectives, timerSeconds, etc.) must use the AQL cache via `AQL:GetQuestInfo`.
+**TBC implementation — tier 2: title-only fallback**
+
+When the quest is not in the player's log, falls back to `C_QuestLog.GetQuestInfo(questID)` (returns title string or nil):
+
+```lua
+{ questID = questID, title = title }  -- level/suggestedGroup/isComplete absent
+```
+
+**Retail implementation**
+
+`C_QuestLog.GetQuestInfo(questID)` returns a full info table in one call — no log scan needed:
+
+```lua
+-- Returns nil if info is nil.
+{
+    questID        = questID,
+    title          = info.title,
+    level          = info.level,
+    suggestedGroup = info.suggestedGroup or 0,
+    isComplete     = info.isComplete == 1,
+    isTask         = info.isTask,
+    isBounty       = info.isBounty,
+    isStory        = info.isStory,
+    campaignID     = info.campaignID,
+}
+```
+
+```lua
+WowQuestAPI.GetQuestInfo(questID)  --> table | nil
+```
+
+This is a **fallback for quests not in the AQL cache**. The AQL cache (`AQL:GetQuestInfo`) is always checked first and returns the full normalized snapshot when available. Callers that need zone, objectives, timerSeconds, or chainInfo must use the AQL cache.
 
 #### `WowQuestAPI.GetQuestObjectives(questID)`
 
