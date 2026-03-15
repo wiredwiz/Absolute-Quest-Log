@@ -23,30 +23,34 @@ Remove the `handleQuestLogUpdate()` call from the `QUEST_TURNED_IN` event branch
 
 ### Why this is safe
 
-`QUEST_LOG_UPDATE` always fires after `QUEST_TURNED_IN`. By the time that event fires, the quest has been removed from the log. The diff's "removed quest" path runs, finds `HistoryCache:HasCompleted(questID) == true` (set by the `QUEST_TURNED_IN` handler above), and fires `AQL_QUEST_COMPLETED` correctly.
+The full event sequence after a turn-in on TBC Classic 20505 is:
 
-Because the quest is absent from the new cache when the `QUEST_LOG_UPDATE` diff runs, the objective diff loop never executes for it — so `AQL_OBJECTIVE_REGRESSED` cannot fire.
+1. `QUEST_TURNED_IN` — quest still in log, item objectives zeroed. We mark completed in `HistoryCache` and stop. No diff runs.
+2. `QUEST_REMOVED` — fires after the quest has been removed from the log. `handleQuestLogUpdate()` runs: `QuestCache:Rebuild()` no longer finds the quest, so the diff takes the "removed quest" path. `HistoryCache:HasCompleted(questID) == true` (set in step 1), so `AQL_QUEST_COMPLETED` fires. No objective diff runs because the quest is absent from the new cache.
+3. `QUEST_LOG_UPDATE` — fires after `QUEST_REMOVED`. `QuestCache:Rebuild()` returns an already-updated cache that does not contain the quest. The diff sees no change and fires nothing.
+
+`QUEST_REMOVED` fires only after the quest is fully removed from the log — not while objectives are still readable. This means there is no window in which `QUEST_REMOVED` could trigger a diff with the zeroed-but-still-present quest, so the fix covers all three events in the sequence.
 
 ### Change
 
 ```lua
--- Before
+-- Before (excerpt — elseif branch inside OnEvent handler)
 elseif event == "QUEST_TURNED_IN" then
     local questID = ...
     if questID and type(questID) == "number" then
         AQL.HistoryCache:MarkCompleted(questID)
     end
-    handleQuestLogUpdate()
+    handleQuestLogUpdate()   -- ← remove this line
 
--- After
+-- After (excerpt — elseif branch inside OnEvent handler)
 elseif event == "QUEST_TURNED_IN" then
     local questID = ...
     if questID and type(questID) == "number" then
         AQL.HistoryCache:MarkCompleted(questID)
     end
-    -- No diff here. QUEST_LOG_UPDATE always follows and runs the diff once
-    -- the quest is already removed from the log, so objective counts for
-    -- items handed to the NPC never produce AQL_OBJECTIVE_REGRESSED.
+    -- No diff here. QUEST_REMOVED and QUEST_LOG_UPDATE follow and run the
+    -- diff once the quest is already removed from the log, so objective
+    -- counts for items handed to the NPC never produce AQL_OBJECTIVE_REGRESSED.
 ```
 
 ## Correctness
@@ -57,6 +61,7 @@ elseif event == "QUEST_TURNED_IN" then
 | Turn in kill/non-item quest | `AQL_QUEST_COMPLETED` fires | `AQL_QUEST_COMPLETED` fires ✓ |
 | Genuine mid-quest regression (item destroyed, escort resets) | `AQL_OBJECTIVE_REGRESSED` fires | `AQL_OBJECTIVE_REGRESSED` fires ✓ |
 | Quest abandoned | `AQL_QUEST_ABANDONED` fires | `AQL_QUEST_ABANDONED` fires ✓ |
+| Quest failed (escort wipe, timeout) | `AQL_QUEST_FAILED` fires | `AQL_QUEST_FAILED` fires ✓ (unaffected — QUEST_TURNED_IN does not fire for failures) |
 
 ## Testing
 
@@ -66,4 +71,4 @@ elseif event == "QUEST_TURNED_IN" then
 4. Confirm no `AQL_OBJECTIVE_REGRESSED` fires (no regression announcement in Social Quest chat or banner).
 5. Confirm `AQL_QUEST_COMPLETED` fires (completion announcement appears normally).
 6. Accept a kill quest, complete it, turn it in — confirm `AQL_QUEST_COMPLETED` fires with no regressions.
-7. Accept a collection quest, collect partway, then destroy an item — confirm `AQL_OBJECTIVE_REGRESSED` still fires for this genuine regression.
+7. Accept a collection quest, collect partway, then destroy an item — confirm `AQL_OBJECTIVE_REGRESSED` still fires for this genuine regression (Social Quest regression announcement appears in chat).
