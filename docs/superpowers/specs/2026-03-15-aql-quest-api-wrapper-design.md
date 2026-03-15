@@ -213,12 +213,11 @@ After the new AQL methods and WowQuestAPI are in place, Social Quest removes eve
 
 | File | Current call | Replacement |
 |------|-------------|-------------|
-| `Core/Announcements.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
-| `Core/GroupData.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
-| `Core/GroupData.lua` | `C_QuestLog.IsQuestFlaggedCompleted` | `AQL:HasCompletedQuest(questID)` |
-| `UI/TabUtils.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
-| `UI/Tabs/PartyTab.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
-| `UI/Tabs/SharedTab.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
+| `Core/Announcements.lua` | `C_QuestLog.GetQuestInfo(questID)` ×4 | `AQL:GetQuestTitle(questID)` |
+| `Core/Announcements.lua` | `C_QuestLog.IsQuestFlaggedCompleted(questID)` ×1 | `AQL:HasCompletedQuest(questID)` |
+| `Core/GroupData.lua` | `C_QuestLog.GetQuestInfo(questID)` ×2 | `AQL:GetQuestTitle(questID)` |
+| `UI/Tabs/PartyTab.lua` | `C_QuestLog.GetQuestInfo(questID)` ×1 | `AQL:GetQuestTitle(questID)` |
+| `UI/Tabs/SharedTab.lua` | `C_QuestLog.GetQuestInfo(questID)` ×2 | `AQL:GetQuestTitle(questID)` |
 
 After migration, Social Quest will contain no direct WoW quest API calls. AQL internal files (`Core\QuestCache.lua`, `Providers\*.lua`) are **not** migrated in this phase — they continue to call WoW globals directly. Migrating AQL internals to use WowQuestAPI is deferred to a future phase. The invariant for this phase is: **Social Quest is the only consumer addon that never calls WoW quest globals.**
 
