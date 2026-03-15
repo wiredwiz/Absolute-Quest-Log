@@ -448,7 +448,7 @@ local title = (AQL and AQL:GetQuestLink(questID))
 
 -- After:
 local title = (AQL and AQL:GetQuestLink(questID))
-           or AQL:GetQuestTitle(questID)
+           or (AQL and AQL:GetQuestTitle(questID))
            or ("Quest " .. questID)
 ```
 
@@ -543,19 +543,27 @@ Expected: no output.
 grep -n "C_QuestLog\." "D:\Projects\Wow Addons\Social-Quest\UI\Tabs\SharedTab.lua"
 ```
 
-- [ ] **Step 2: Replace each call**
-
-SharedTab.lua accesses AQL via `local AQL = SocialQuest.AQL`. Use local `AQL`:
+- [ ] **Step 2: Replace at line 111 (chain section — uses `eng.questID`)**
 
 ```lua
 -- Before:
-C_QuestLog.GetQuestInfo(questID)
+or C_QuestLog.GetQuestInfo(eng.questID)
 
 -- After:
-AQL:GetQuestTitle(questID)
+or AQL:GetQuestTitle(eng.questID)
 ```
 
-- [ ] **Step 3: Verify**
+- [ ] **Step 3: Replace at line 183 (standalone section — uses `questID`)**
+
+```lua
+-- Before:
+or C_QuestLog.GetQuestInfo(questID)
+
+-- After:
+or AQL:GetQuestTitle(questID)
+```
+
+- [ ] **Step 4: Verify**
 
 ```bash
 grep -n "C_QuestLog\." "D:\Projects\Wow Addons\Social-Quest\UI\Tabs\SharedTab.lua"
@@ -570,7 +578,7 @@ Expected: no output.
 - [ ] **Step 1: Confirm no direct WoW quest API calls remain in Social Quest**
 
 ```bash
-grep -rn "C_QuestLog\." "D:\Projects\Wow Addons\Social-Quest\"
+grep -rn "C_QuestLog\." "D:\Projects\Wow Addons\Social-Quest"
 ```
 
 Expected: no output. (This catches any `C_QuestLog` namespace call, not just the ones we planned to replace.)
@@ -586,6 +594,6 @@ Load WoW with both addons. In a party with another Social Quest user, or using t
 
 ```bash
 cd "D:\Projects\Wow Addons\Social-Quest"
-git add Core\Announcements.lua Core\GroupData.lua UI\TabUtils.lua UI\Tabs\PartyTab.lua UI\Tabs\SharedTab.lua
+git add Core\Announcements.lua Core\GroupData.lua UI\Tabs\PartyTab.lua UI\Tabs\SharedTab.lua
 git commit -m "refactor: replace direct C_QuestLog calls with AQL:GetQuestTitle"
 ```
