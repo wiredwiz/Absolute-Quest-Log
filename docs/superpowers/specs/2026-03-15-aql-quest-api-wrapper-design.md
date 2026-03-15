@@ -141,7 +141,7 @@ end
 | Existing method | New method | Relationship |
 |----------------|------------|--------------|
 | `AQL:GetQuest(questID)` | `AQL:GetQuestInfo(questID)` | `GetQuestInfo` is a **new method with different semantics** (see below). `GetQuest` is kept as-is (cache-only, no fallback) and is not deprecated. |
-| `AQL:HasCompletedQuest(questID)` | `AQL:IsQuestEverCompleted(questID)` | `IsQuestEverCompleted` is a superset: checks HistoryCache first (same as `HasCompletedQuest`), then falls back to `WowQuestAPI.IsQuestFlaggedCompleted`. `HasCompletedQuest` is kept as-is; callers that want the richer check use the new method. |
+| `AQL:HasCompletedQuest(questID)` | *(enhanced in place)* | `HasCompletedQuest` keeps its name and is enhanced to also fall back to `WowQuestAPI.IsQuestFlaggedCompleted` when the HistoryCache has no record. No new method is added. |
 | `AQL:GetObjectives(questID)` / `AQL:GetObjective(questID, i)` | `AQL:GetQuestObjectives(questID)` | The existing methods are kept unchanged. `GetQuestObjectives` is a new method with WowQuestAPI fallback; `GetObjectives` remains cache-only. |
 
 ### New Method Signatures
@@ -175,11 +175,13 @@ AQL:GetQuestObjectives(questID)  --> table
 -- AQL cache first → WowQuestAPI.GetQuestObjectives(questID) fallback
 ```
 
-#### `AQL:IsQuestEverCompleted(questID)`
+#### `AQL:HasCompletedQuest(questID)` *(enhanced)*
+
+Existing method, enhanced in place. Previously checked only the HistoryCache. Now also falls back to `WowQuestAPI.IsQuestFlaggedCompleted(questID)` when the cache has no record.
 
 ```lua
-AQL:IsQuestEverCompleted(questID)  --> bool
--- HistoryCache (same as HasCompletedQuest) OR WowQuestAPI.IsQuestFlaggedCompleted
+AQL:HasCompletedQuest(questID)  --> bool
+-- HistoryCache first → WowQuestAPI.IsQuestFlaggedCompleted fallback
 ```
 
 #### `AQL:TrackQuest(questID)` / `AQL:UntrackQuest(questID)`
@@ -211,7 +213,7 @@ After the new AQL methods and WowQuestAPI are in place, Social Quest removes eve
 |------|-------------|-------------|
 | `Core/Announcements.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
 | `Core/GroupData.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
-| `Core/GroupData.lua` | `C_QuestLog.IsQuestFlaggedCompleted` | `AQL:IsQuestEverCompleted(questID)` |
+| `Core/GroupData.lua` | `C_QuestLog.IsQuestFlaggedCompleted` | `AQL:HasCompletedQuest(questID)` |
 | `UI/TabUtils.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
 | `UI/Tabs/PartyTab.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
 | `UI/Tabs/SharedTab.lua` | `C_QuestLog.GetQuestInfo(questID)` | `AQL:GetQuestTitle(questID)` |
