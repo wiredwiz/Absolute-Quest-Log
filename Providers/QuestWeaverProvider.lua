@@ -99,4 +99,16 @@ function QuestWeaverProvider:GetQuestFaction(questID)
     return quest.faction or nil
 end
 
+function QuestWeaverProvider:GetQuestBasicInfo(questID)
+    if not self:IsAvailable() then return nil end
+    local ok, quest = pcall(function() return qw.Quests[questID] end)
+    if not ok or not quest then return nil end
+    return {
+        title         = quest.name,
+        questLevel    = quest.level,
+        requiredLevel = quest.min_level,
+        zone          = quest.source_zone or quest.zone,
+    }
+end
+
 AQL.QuestWeaverProvider = QuestWeaverProvider
