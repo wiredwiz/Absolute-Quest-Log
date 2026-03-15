@@ -7,6 +7,7 @@
 ## Dependencies: Ace3
 
 AbsoluteQuestLog.lua
+Core\WowQuestAPI.lua
 Core\EventEngine.lua
 Core\QuestCache.lua
 Core\HistoryCache.lua

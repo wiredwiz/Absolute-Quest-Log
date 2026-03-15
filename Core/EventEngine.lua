@@ -222,17 +222,20 @@ frame:SetScript("OnEvent", function(self, event, ...)
         frame:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
 
     elseif event == "QUEST_TURNED_IN" then
-        -- QUEST_TURNED_IN fires BEFORE QUEST_LOG_UPDATE removes the quest.
-        -- Pre-mark the quest as completed in HistoryCache NOW so that when
-        -- the subsequent diff sees the quest disappear from the log, it
-        -- correctly identifies it as a turn-in (HasCompleted → true) rather
-        -- than an abandonment.
+        -- Pre-mark the quest as completed in HistoryCache so that when the
+        -- subsequent QUEST_REMOVED / QUEST_LOG_UPDATE diff sees the quest
+        -- disappear from the log, it correctly identifies it as a turn-in
+        -- (HasCompleted → true) rather than an abandonment.
+        -- Do NOT call handleQuestLogUpdate() here: at this moment the quest
+        -- is still in the log but item objectives have already dropped to zero
+        -- (items handed to the NPC), which would fire AQL_OBJECTIVE_REGRESSED
+        -- spuriously. QUEST_REMOVED fires next, after the quest is fully
+        -- removed, and produces AQL_QUEST_COMPLETED correctly.
         -- In TBC Classic, QUEST_TURNED_IN passes: questID, xpReward, moneyReward.
         local questID = ...
         if questID and type(questID) == "number" then
             AQL.HistoryCache:MarkCompleted(questID)
         end
-        handleQuestLogUpdate()
 
     elseif event == "UNIT_QUEST_LOG_CHANGED" then
         local unit = ...

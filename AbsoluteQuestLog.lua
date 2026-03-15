@@ -56,7 +56,10 @@ function AQL:IsQuestFinished(questID)
 end
 
 function AQL:HasCompletedQuest(questID)
-    return self.HistoryCache ~= nil and self.HistoryCache:HasCompleted(questID)
+    if self.HistoryCache and self.HistoryCache:HasCompleted(questID) then
+        return true
+    end
+    return WowQuestAPI.IsQuestFlaggedCompleted(questID)
 end
 
 function AQL:GetCompletedQuests()
@@ -113,3 +116,89 @@ end
 
 -- AQL:RegisterCallback(event, handler, target) -- from CallbackHandler
 -- AQL:UnregisterCallback(event, handler)        -- from CallbackHandler
+
+------------------------------------------------------------------------
+-- Public API: WowQuestAPI-backed Extended Queries
+------------------------------------------------------------------------
+
+-- Three-tier resolution. Contrast with AQL:GetQuest which is cache-only.
+--   Tier 1: AQL QuestCache (full normalized snapshot)
+--   Tier 2: WowQuestAPI log scan → { questID, title, level, suggestedGroup, isComplete, zone }
+--           or title-only { questID, title } when not in log
+--   Tier 3: AQL.provider:GetQuestBasicInfo → { title, questLevel, requiredLevel, zone }
+--           merged with AQL.provider:GetChainInfo → chainInfo (chainID, step, length)
+-- Returns nil only when all three tiers have no data.
+function AQL:GetQuestInfo(questID)
+    -- Tier 1: cache.
+    local cached = self.QuestCache and self.QuestCache:Get(questID)
+    if cached then return cached end
+
+    -- Tier 2: WoW log scan / title fallback.
+    local result = WowQuestAPI.GetQuestInfo(questID)
+    if result then return result end
+
+    -- Tier 3: provider (Questie / QuestWeaver).
+    local provider = self.provider
+    if not provider then return nil end
+
+    local basicInfo
+    if provider.GetQuestBasicInfo then
+        local ok, info = pcall(provider.GetQuestBasicInfo, provider, questID)
+        if ok and info then basicInfo = info end
+    end
+
+    local chainInfo = { knownStatus = "unknown" }
+    if provider.GetChainInfo then
+        local ok, ci = pcall(provider.GetChainInfo, provider, questID)
+        if ok and ci then chainInfo = ci end
+    end
+
+    if not basicInfo and chainInfo.knownStatus == "unknown" then return nil end
+
+    return {
+        questID       = questID,
+        title         = basicInfo and basicInfo.title         or nil,
+        level         = basicInfo and basicInfo.questLevel    or nil,
+        requiredLevel = basicInfo and basicInfo.requiredLevel or nil,
+        zone          = basicInfo and basicInfo.zone          or nil,
+        chainInfo     = chainInfo,
+    }
+end
+
+-- Returns the title string for any questID, or nil.
+-- Delegates to GetQuestInfo and extracts .title.
+function AQL:GetQuestTitle(questID)
+    local info = self:GetQuestInfo(questID)
+    return info and info.title or nil
+end
+
+-- Returns the objectives array for a questID.
+-- Cache first (normalized fields: isFinished, etc.).
+-- WowQuestAPI fallback returns raw TBC fields (finished, type, etc.).
+function AQL:GetQuestObjectives(questID)
+    local cached = self.QuestCache and self.QuestCache:Get(questID)
+    if cached then return cached.objectives or {} end
+    return WowQuestAPI.GetQuestObjectives(questID)
+end
+
+-- Tracks a quest by questID.
+-- Returns false if the watch cap (MAX_WATCHABLE_QUESTS) is already reached.
+-- Returns true if the quest was successfully handed to AddQuestWatch.
+-- Caller is responsible for displaying a message when false is returned.
+function AQL:TrackQuest(questID)
+    if GetNumQuestWatches() >= MAX_WATCHABLE_QUESTS then
+        return false
+    end
+    WowQuestAPI.TrackQuest(questID)
+    return true
+end
+
+-- Untracks a quest by questID. Always delegates; no cap check needed.
+function AQL:UntrackQuest(questID)
+    WowQuestAPI.UntrackQuest(questID)
+end
+
+-- Returns bool on Retail (UnitIsOnQuest exists), nil on TBC/Classic.
+function AQL:IsUnitOnQuest(questID, unit)
+    return WowQuestAPI.IsUnitOnQuest(questID, unit)
+end
