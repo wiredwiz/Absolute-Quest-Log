@@ -20,6 +20,7 @@ AQL.EventEngine = EventEngine
 
 EventEngine.diffInProgress   = false
 EventEngine.initialized      = false
+EventEngine.pendingTurnIn    = {}  -- questIDs currently between QUEST_TURNED_IN and QUEST_REMOVED
 
 -- Hidden event frame.
 local frame = CreateFrame("Frame")
@@ -82,6 +83,7 @@ local function runDiff(oldCache)
         for questID, oldInfo in pairs(oldCache) do
             if not newCache[questID] then
                 -- Quest was removed from the log.
+                EventEngine.pendingTurnIn[questID] = nil
                 if histCache and histCache:HasCompleted(questID) then
                     -- Already recorded by the QUEST_TURNED_IN handler before this
                     -- diff ran. MarkCompleted is idempotent so calling it again is
@@ -168,8 +170,12 @@ local function runDiff(oldCache)
                                 AQL.callbacks:Fire("AQL_OBJECTIVE_COMPLETED", newInfo, newObj)
                             end
                         elseif newN < oldN then
-                            local delta = oldN - newN
-                            AQL.callbacks:Fire("AQL_OBJECTIVE_REGRESSED", newInfo, newObj, delta)
+                            -- Suppress regression during turn-in window: objective drop
+                            -- is the NPC taking items, not a genuine regression.
+                            if not EventEngine.pendingTurnIn[questID] then
+                                local delta = oldN - newN
+                                AQL.callbacks:Fire("AQL_OBJECTIVE_REGRESSED", newInfo, newObj, delta)
+                            end
                         end
                     end
                 end
@@ -231,9 +237,12 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- (items handed to the NPC), which would fire AQL_OBJECTIVE_REGRESSED
         -- spuriously. QUEST_REMOVED fires next, after the quest is fully
         -- removed, and produces AQL_QUEST_COMPLETED correctly.
+        -- pendingTurnIn suppresses AQL_OBJECTIVE_REGRESSED in any diff that
+        -- runs while the quest is in this window (e.g. UNIT_QUEST_LOG_CHANGED).
         -- In TBC Classic, QUEST_TURNED_IN passes: questID, xpReward, moneyReward.
         local questID = ...
         if questID and type(questID) == "number" then
+            EventEngine.pendingTurnIn[questID] = true
             AQL.HistoryCache:MarkCompleted(questID)
         end
 
