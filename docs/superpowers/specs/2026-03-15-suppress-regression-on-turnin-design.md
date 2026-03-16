@@ -2,73 +2,106 @@
 
 ## Problem
 
-When a player turns in a collection quest, `AQL_OBJECTIVE_REGRESSED` fires spuriously. The cause:
+When a player turns in a collection quest, `AQL_OBJECTIVE_REGRESSED` fires spuriously
+before `AQL_QUEST_COMPLETED`. Social Quest receives the callback and shows a regression
+announcement that is incorrect — the objective decrease is a side-effect of the NPC
+taking the items, not a genuine regression.
 
-1. `QUEST_TURNED_IN` fires **before** `QUEST_LOG_UPDATE` removes the quest from the log.
-2. AQL's `QUEST_TURNED_IN` handler calls `handleQuestLogUpdate()` immediately.
-3. At that moment the quest still exists in the cache, but its item objectives have already dropped to zero (items handed to the NPC).
-4. The diff sees `newN < oldN` and fires `AQL_OBJECTIVE_REGRESSED`.
+## Root Cause
 
-Consumers such as Social Quest receive this callback and display a regression announcement, which is incorrect — the decrease is a side-effect of the turn-in, not a genuine regression.
+The actual TBC Classic event order after turning in a collection quest is:
+
+1. `QUEST_TURNED_IN` — quest still in log, item objectives already zeroed (items handed to NPC)
+2. `UNIT_QUEST_LOG_CHANGED` (unit = "player") — fires while quest is still in log
+3. `QUEST_LOG_UPDATE` — fires while quest is still in log
+4. `QUEST_REMOVED` — quest removed from log
+5. `QUEST_LOG_UPDATE` — fires after quest is gone
+
+A prior fix (`fc208e9`) correctly removed the `handleQuestLogUpdate()` call from the
+`QUEST_TURNED_IN` handler, eliminating that specific trigger. However, steps 2 and 3
+above still fire `handleQuestLogUpdate()`. Because the quest is still present in the
+cache at that point (step 4 hasn't fired yet), the diff runs with the quest present
+but item objectives at 0 vs. the prior snapshot of e.g. 10/10, and fires
+`AQL_OBJECTIVE_REGRESSED` spuriously.
 
 ## Goal
 
-Suppress `AQL_OBJECTIVE_REGRESSED` for objectives that decrease as part of a quest turn-in. All other callbacks (`AQL_QUEST_COMPLETED`, progression events, etc.) must continue to fire normally.
+Suppress `AQL_OBJECTIVE_REGRESSED` for the turn-in window (QUEST_TURNED_IN through
+QUEST_REMOVED). All other events must continue to fire normally.
 
 ## Design
 
-**File:** `Core/EventEngine.lua`
+**File:** `Core/EventEngine.lua` only.
 
-Remove the `handleQuestLogUpdate()` call from the `QUEST_TURNED_IN` event branch. Keep `HistoryCache:MarkCompleted(questID)`.
+### Approach: `pendingTurnIn` flag
+
+Track a set of quest IDs that are in the turn-in window. The diff skips regression
+events for these quests. The flag is cleared when the quest is detected as removed.
+
+**No new files. No new data structures beyond the flag table.**
+
+### Changes
+
+**1. Initialize flag table** (alongside `diffInProgress` and `initialized`):
+```lua
+EventEngine.pendingTurnIn = {}
+```
+
+**2. Set flag in `QUEST_TURNED_IN` handler:**
+```lua
+elseif event == "QUEST_TURNED_IN" then
+    local questID = ...
+    if questID and type(questID) == "number" then
+        EventEngine.pendingTurnIn[questID] = true   -- ← add this
+        AQL.HistoryCache:MarkCompleted(questID)
+    end
+    -- (no handleQuestLogUpdate call — already removed by fc208e9)
+```
+
+**3. Clear flag in `runDiff` when quest is removed from log:**
+```lua
+for questID, oldInfo in pairs(oldCache) do
+    if not newCache[questID] then
+        EventEngine.pendingTurnIn[questID] = nil   -- ← add this
+        if histCache and histCache:HasCompleted(questID) then
+            ...
+```
+
+**4. Guard `AQL_OBJECTIVE_REGRESSED` in the objective diff:**
+```lua
+elseif newN < oldN then
+    if not EventEngine.pendingTurnIn[questID] then   -- ← add guard
+        local delta = oldN - newN
+        AQL.callbacks:Fire("AQL_OBJECTIVE_REGRESSED", newInfo, newObj, delta)
+    end
+end
+```
 
 ### Why this is safe
 
-The full event sequence after a turn-in on TBC Classic 20505 is:
-
-1. `QUEST_TURNED_IN` — quest still in log, item objectives zeroed. We mark completed in `HistoryCache` and stop. No diff runs.
-2. `QUEST_REMOVED` — fires after the quest has been removed from the log. `handleQuestLogUpdate()` runs: `QuestCache:Rebuild()` no longer finds the quest, so the diff takes the "removed quest" path. `HistoryCache:HasCompleted(questID) == true` (set in step 1), so `AQL_QUEST_COMPLETED` fires. No objective diff runs because the quest is absent from the new cache.
-3. `QUEST_LOG_UPDATE` — fires after `QUEST_REMOVED`. `QuestCache:Rebuild()` returns an already-updated cache that does not contain the quest. The diff sees no change and fires nothing.
-
-`QUEST_REMOVED` fires only after the quest is fully removed from the log — not while objectives are still readable. This means there is no window in which `QUEST_REMOVED` could trigger a diff with the zeroed-but-still-present quest, so the fix covers all three events in the sequence.
-
-### Change
-
-```lua
--- Before (excerpt — elseif branch inside OnEvent handler)
-elseif event == "QUEST_TURNED_IN" then
-    local questID = ...
-    if questID and type(questID) == "number" then
-        AQL.HistoryCache:MarkCompleted(questID)
-    end
-    handleQuestLogUpdate()   -- ← remove this line
-
--- After (excerpt — elseif branch inside OnEvent handler)
-elseif event == "QUEST_TURNED_IN" then
-    local questID = ...
-    if questID and type(questID) == "number" then
-        AQL.HistoryCache:MarkCompleted(questID)
-    end
-    -- No diff here. QUEST_REMOVED and QUEST_LOG_UPDATE follow and run the
-    -- diff once the quest is already removed from the log, so objective
-    -- counts for items handed to the NPC never produce AQL_OBJECTIVE_REGRESSED.
-```
+- The flag is set synchronously in `QUEST_TURNED_IN` and cleared the moment the quest
+  leaves the cache in the next `runDiff` call (triggered by `QUEST_REMOVED`).
+- No memory leak: `QUEST_REMOVED` always fires after `QUEST_TURNED_IN`.
+- Genuine mid-quest regressions (item destroyed before turn-in, escort reset) are
+  unaffected: those happen when no `QUEST_TURNED_IN` has fired for the quest.
 
 ## Correctness
 
-| Scenario | Before | After |
+| Scenario | Before fix | After fix |
 |---|---|---|
-| Turn in collection quest | `AQL_OBJECTIVE_REGRESSED` fires (bug), then `AQL_QUEST_COMPLETED` fires | Only `AQL_QUEST_COMPLETED` fires ✓ |
-| Turn in kill/non-item quest | `AQL_QUEST_COMPLETED` fires | `AQL_QUEST_COMPLETED` fires ✓ |
-| Genuine mid-quest regression (item destroyed, escort resets) | `AQL_OBJECTIVE_REGRESSED` fires | `AQL_OBJECTIVE_REGRESSED` fires ✓ |
-| Quest abandoned | `AQL_QUEST_ABANDONED` fires | `AQL_QUEST_ABANDONED` fires ✓ |
-| Quest failed (escort wipe, timeout) | `AQL_QUEST_FAILED` fires | `AQL_QUEST_FAILED` fires ✓ (unaffected — QUEST_TURNED_IN does not fire for failures) |
+| Turn in collection quest | Regression fires, then completion fires (bug) | Only completion fires ✓ |
+| Turn in kill/non-item quest | Completion fires | Completion fires ✓ |
+| Genuine mid-quest regression (destroy item, escort resets) | Regression fires | Regression fires ✓ |
+| Quest abandoned | Abandoned fires | Abandoned fires ✓ |
+| Quest failed (timeout, escort wipe) | Failed fires | Failed fires ✓ |
 
 ## Testing
 
 1. Accept a collection quest (items required).
-2. Collect all required items so the quest is complete.
-3. Turn it in.
-4. Confirm no `AQL_OBJECTIVE_REGRESSED` fires (no regression announcement in Social Quest chat or banner).
-5. Confirm `AQL_QUEST_COMPLETED` fires (completion announcement appears normally).
-6. Accept a kill quest, complete it, turn it in — confirm `AQL_QUEST_COMPLETED` fires with no regressions.
-7. Accept a collection quest, collect partway, then destroy an item — confirm `AQL_OBJECTIVE_REGRESSED` still fires for this genuine regression (Social Quest regression announcement appears in chat).
+2. Collect all required items so the quest is flagged complete.
+3. Turn it in at the NPC.
+4. Confirm no regression announcement appears in Social Quest chat or banner.
+5. Confirm a completion announcement appears normally.
+6. Accept a kill quest, complete it, turn in — confirm completion fires, no regression.
+7. Accept a collection quest, collect partway, then destroy an item — confirm regression
+   announcement still fires for this genuine regression.
