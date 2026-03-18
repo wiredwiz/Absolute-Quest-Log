@@ -41,6 +41,9 @@ hooksecurefunc("GetQuestReward", function()
     local questID = GetQuestID()
     if questID and questID ~= 0 then
         EventEngine.pendingTurnIn[questID] = true
+        if AQL.debug then
+            print(AQL.DBG .. "[AQL] pendingTurnIn set: questID=" .. tostring(questID) .. AQL.RESET)
+        end
     end
 end)
 
@@ -80,19 +83,26 @@ end
 -- On success, rebuilds the cache immediately so chain data is populated without
 -- waiting for the next game event. The old-cache return value from Rebuild() is
 -- intentionally discarded — no diff is needed, only a data refresh.
--- providerName (second return of selectProvider) is intentionally discarded;
--- it is not stored on AQL anywhere in this file.
 local function tryUpgradeProvider(attemptsLeft)
     if AQL.provider ~= AQL.NullProvider then return end  -- already upgraded
 
-    local provider = selectProvider()
+    local provider, providerName = selectProvider()
     if provider ~= AQL.NullProvider then
         AQL.provider = provider
+        if AQL.debug then
+            print(AQL.DBG .. "[AQL] Provider upgraded: " .. tostring(providerName) .. AQL.RESET)
+        end
         AQL.QuestCache:Rebuild()
         return
     end
 
     if attemptsLeft > 0 then
+        if AQL.debug then
+            print(AQL.DBG .. "[AQL] Provider upgrade attempt " ..
+                  tostring(MAX_DEFERRED_UPGRADE_ATTEMPTS - attemptsLeft + 1) ..
+                  "/" .. tostring(MAX_DEFERRED_UPGRADE_ATTEMPTS) ..
+                  " — still on NullProvider" .. AQL.RESET)
+        end
         C_Timer.After(1, function() tryUpgradeProvider(attemptsLeft - 1) end)
     end
 end
@@ -102,8 +112,20 @@ end
 ------------------------------------------------------------------------
 
 local function runDiff(oldCache)
-    if EventEngine.diffInProgress then return end
+    if EventEngine.diffInProgress then
+        if AQL.debug == "verbose" then
+            print(AQL.DBG .. "[AQL] runDiff: skipped (already in progress)" .. AQL.RESET)
+        end
+        return
+    end
     EventEngine.diffInProgress = true
+    if AQL.debug == "verbose" then
+        local oldCount, newCount = 0, 0
+        for _ in pairs(oldCache) do oldCount = oldCount + 1 end
+        for _ in pairs(AQL.QuestCache.data) do newCount = newCount + 1 end
+        print(AQL.DBG .. "[AQL] runDiff: start — old=" .. tostring(oldCount) ..
+              " new=" .. tostring(newCount) .. " quests" .. AQL.RESET)
+    end
 
     local ok, err = pcall(function()
         local newCache = AQL.QuestCache.data
@@ -117,6 +139,10 @@ local function runDiff(oldCache)
                     -- (Can happen at login when cache first builds.)
                 else
                     AQL.callbacks:Fire("AQL_QUEST_ACCEPTED", newInfo)
+                    if AQL.debug then
+                        print(AQL.DBG .. "[AQL] Quest accepted: " .. tostring(questID) ..
+                              " \"" .. tostring(newInfo.title) .. "\"" .. AQL.RESET)
+                    end
                 end
             end
         end
@@ -126,6 +152,9 @@ local function runDiff(oldCache)
             if not newCache[questID] then
                 -- Quest was removed from the log.
                 EventEngine.pendingTurnIn[questID] = nil
+                if AQL.debug then
+                    print(AQL.DBG .. "[AQL] pendingTurnIn cleared: questID=" .. tostring(questID) .. AQL.RESET)
+                end
                 if (histCache and histCache:HasCompleted(questID))
                    or WowQuestAPI.IsQuestFlaggedCompleted(questID) then
                     -- IsQuestFlaggedCompleted is the server-authoritative completion
@@ -135,6 +164,10 @@ local function runDiff(oldCache)
                     -- (histCache is always non-nil post-login but nil-safety is kept).
                     if histCache then histCache:MarkCompleted(questID) end
                     AQL.callbacks:Fire("AQL_QUEST_COMPLETED", oldInfo)
+                    if AQL.debug then
+                        print(AQL.DBG .. "[AQL] Quest completed: " .. tostring(questID) ..
+                              " \"" .. tostring(oldInfo.title) .. "\"" .. AQL.RESET)
+                    end
                 else
                     -- No completion record. Infer failure from the last snapshot.
                     -- TBC Classic has no QUEST_FAILED event, so we use timer and
@@ -154,14 +187,26 @@ local function runDiff(oldCache)
                         oldInfo.isFailed   = true
                         oldInfo.failReason = failReason
                         AQL.callbacks:Fire("AQL_QUEST_FAILED", oldInfo)
+                        if AQL.debug then
+                            print(AQL.DBG .. "[AQL] Quest failed: " .. tostring(questID) ..
+                                  " \"" .. tostring(oldInfo.title) .. "\" reason=" .. tostring(failReason) .. AQL.RESET)
+                        end
                         for _, obj in ipairs(oldInfo.objectives or {}) do
                             if not obj.isFinished then
                                 obj.isFailed = true
                                 AQL.callbacks:Fire("AQL_OBJECTIVE_FAILED", oldInfo, obj)
+                                if AQL.debug then
+                                    print(AQL.DBG .. "[AQL] Objective failed: " .. tostring(questID) ..
+                                          " \"" .. tostring(obj.text or "") .. "\"" .. AQL.RESET)
+                                end
                             end
                         end
                     else
                         AQL.callbacks:Fire("AQL_QUEST_ABANDONED", oldInfo)
+                        if AQL.debug then
+                            print(AQL.DBG .. "[AQL] Quest abandoned: " .. tostring(questID) ..
+                                  " \"" .. tostring(oldInfo.title) .. "\"" .. AQL.RESET)
+                        end
                     end
                 end
             end
@@ -174,11 +219,20 @@ local function runDiff(oldCache)
                 -- isComplete transition.
                 if newInfo.isComplete and not oldInfo.isComplete then
                     AQL.callbacks:Fire("AQL_QUEST_FINISHED", newInfo)
+                    if AQL.debug then
+                        print(AQL.DBG .. "[AQL] Quest finished (ready to turn in): " .. tostring(questID) ..
+                              " \"" .. tostring(newInfo.title) .. "\"" .. AQL.RESET)
+                    end
                 end
 
                 -- isFailed transition: quest newly failed.
                 if newInfo.isFailed and not oldInfo.isFailed then
                     AQL.callbacks:Fire("AQL_QUEST_FAILED", newInfo)
+                    if AQL.debug then
+                        print(AQL.DBG .. "[AQL] Quest failed (isFailed): " .. tostring(questID) ..
+                              " \"" .. tostring(newInfo.title) .. "\"" ..
+                              (newInfo.failReason and (" reason=" .. tostring(newInfo.failReason)) or "") .. AQL.RESET)
+                    end
                     -- Fire AQL_OBJECTIVE_FAILED for every unfinished objective
                     -- (the quest failing marks all incomplete objectives as failed).
                     for _, obj in ipairs(newInfo.objectives or {}) do
@@ -186,6 +240,10 @@ local function runDiff(oldCache)
                             -- Mark isFailed on the objective in the live snapshot.
                             obj.isFailed = true
                             AQL.callbacks:Fire("AQL_OBJECTIVE_FAILED", newInfo, obj)
+                            if AQL.debug then
+                                print(AQL.DBG .. "[AQL] Objective failed: " .. tostring(questID) ..
+                                      " \"" .. tostring(obj.text or "") .. "\"" .. AQL.RESET)
+                            end
                         end
                     end
                 end
@@ -194,8 +252,16 @@ local function runDiff(oldCache)
                 if newInfo.isTracked ~= oldInfo.isTracked then
                     if newInfo.isTracked then
                         AQL.callbacks:Fire("AQL_QUEST_TRACKED", newInfo)
+                        if AQL.debug == "verbose" then
+                            print(AQL.DBG .. "[AQL] Quest tracked: " .. tostring(questID) ..
+                                  " \"" .. tostring(newInfo.title) .. "\"" .. AQL.RESET)
+                        end
                     else
                         AQL.callbacks:Fire("AQL_QUEST_UNTRACKED", newInfo)
+                        if AQL.debug == "verbose" then
+                            print(AQL.DBG .. "[AQL] Quest untracked: " .. tostring(questID) ..
+                                  " \"" .. tostring(newInfo.title) .. "\"" .. AQL.RESET)
+                        end
                     end
                 end
 
@@ -210,9 +276,18 @@ local function runDiff(oldCache)
                         if newN > oldN then
                             local delta = newN - oldN
                             AQL.callbacks:Fire("AQL_OBJECTIVE_PROGRESSED", newInfo, newObj, delta)
+                            if AQL.debug then
+                                print(AQL.DBG .. "[AQL] Objective progressed: " .. tostring(questID) ..
+                                      " obj[" .. tostring(i) .. "] " ..
+                                      tostring(newObj.numFulfilled) .. "/" .. tostring(newObj.numRequired) .. AQL.RESET)
+                            end
                             -- Also fire COMPLETED if this progression crossed the threshold.
                             if newN >= newObj.numRequired and oldN < newObj.numRequired then
                                 AQL.callbacks:Fire("AQL_OBJECTIVE_COMPLETED", newInfo, newObj)
+                                if AQL.debug then
+                                    print(AQL.DBG .. "[AQL] Objective completed: " .. tostring(questID) ..
+                                          " obj[" .. tostring(i) .. "]" .. AQL.RESET)
+                                end
                             end
                         elseif newN < oldN then
                             -- Suppress regression during turn-in window: objective drop
@@ -220,6 +295,16 @@ local function runDiff(oldCache)
                             if not EventEngine.pendingTurnIn[questID] then
                                 local delta = oldN - newN
                                 AQL.callbacks:Fire("AQL_OBJECTIVE_REGRESSED", newInfo, newObj, delta)
+                                if AQL.debug then
+                                    print(AQL.DBG .. "[AQL] Objective regressed: " .. tostring(questID) ..
+                                          " obj[" .. tostring(i) .. "] " ..
+                                          tostring(newObj.numFulfilled) .. "/" .. tostring(newObj.numRequired) .. AQL.RESET)
+                                end
+                            else
+                                if AQL.debug then
+                                    print(AQL.DBG .. "[AQL] Objective regression suppressed (pendingTurnIn): " ..
+                                          tostring(questID) .. " obj[" .. tostring(i) .. "]" .. AQL.RESET)
+                                end
                             end
                         end
                     end
@@ -228,6 +313,9 @@ local function runDiff(oldCache)
         end
     end)
 
+    if AQL.debug == "verbose" then
+        print(AQL.DBG .. "[AQL] runDiff: done" .. AQL.RESET)
+    end
     EventEngine.diffInProgress = false
 
     if not ok then
@@ -239,16 +327,23 @@ local function runDiff(oldCache)
 end
 
 local function handleQuestLogUpdate()
-    if not EventEngine.initialized then return end
+    if not EventEngine.initialized then
+        if AQL.debug == "verbose" then
+            print(AQL.DBG .. "[AQL] Event received before init, skipping" .. AQL.RESET)
+        end
+        return
+    end
 
     -- Belt-and-suspenders: re-attempt provider selection if still on NullProvider.
     -- tryUpgradeProvider handles the common case via C_Timer; this is a fallback
     -- in case the upgrade window was missed. One comparison per rebuild — no cost.
-    -- providerName (second return of selectProvider) is intentionally discarded.
     if AQL.provider == AQL.NullProvider then
-        local provider = selectProvider()
+        local provider, providerName = selectProvider()
         if provider ~= AQL.NullProvider then
             AQL.provider = provider
+            if AQL.debug then
+                print(AQL.DBG .. "[AQL] Provider upgraded (inline): " .. tostring(providerName) .. AQL.RESET)
+            end
         end
     end
 
@@ -263,10 +358,16 @@ end
 ------------------------------------------------------------------------
 
 frame:SetScript("OnEvent", function(self, event, ...)
+    if AQL.debug then
+        print(AQL.DBG .. "[AQL] Event: " .. tostring(event) .. AQL.RESET)
+    end
     if event == "PLAYER_LOGIN" then
         -- Select the best available provider.
         local provider, providerName = selectProvider()
         AQL.provider = provider
+        if AQL.debug then
+            print(AQL.DBG .. "[AQL] Provider selected: " .. tostring(providerName) .. AQL.RESET)
+        end
 
         -- Load completed quest history (synchronous in TBC Classic).
         AQL.HistoryCache:Load()
