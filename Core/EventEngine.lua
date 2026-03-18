@@ -26,6 +26,10 @@ EventEngine.pendingTurnIn    = {}  -- questIDs currently between QUEST_TURNED_IN
 local frame = CreateFrame("Frame")
 EventEngine.frame = frame
 
+-- Number of deferred 1-second retry attempts after the initial frame-0 attempt.
+-- Total checks: 1 immediate (t=0) + 5 retries (t=1s–5s) = 6 total, up to 5 s.
+local MAX_DEFERRED_UPGRADE_ATTEMPTS = 5
+
 ------------------------------------------------------------------------
 -- Provider selection
 ------------------------------------------------------------------------
@@ -53,6 +57,30 @@ local function selectProvider()
 
     -- Fallback.
     return AQL.NullProvider, "none"
+end
+
+-- Retries provider selection until a real provider is found or attempts run out.
+-- Called once from PLAYER_LOGIN via C_Timer.After(0, ...) so it fires after all
+-- other addons' PLAYER_LOGIN handlers complete. Retries every 1 s for up to 5 s
+-- to catch Questie, whose async init coroutine takes ~3 s.
+-- On success, rebuilds the cache immediately so chain data is populated without
+-- waiting for the next game event. The old-cache return value from Rebuild() is
+-- intentionally discarded — no diff is needed, only a data refresh.
+-- providerName (second return of selectProvider) is intentionally discarded;
+-- it is not stored on AQL anywhere in this file.
+local function tryUpgradeProvider(attemptsLeft)
+    if AQL.provider ~= AQL.NullProvider then return end  -- already upgraded
+
+    local provider = selectProvider()
+    if provider ~= AQL.NullProvider then
+        AQL.provider = provider
+        AQL.QuestCache:Rebuild()
+        return
+    end
+
+    if attemptsLeft > 0 then
+        C_Timer.After(1, function() tryUpgradeProvider(attemptsLeft - 1) end)
+    end
 end
 
 ------------------------------------------------------------------------
@@ -196,6 +224,17 @@ end
 local function handleQuestLogUpdate()
     if not EventEngine.initialized then return end
 
+    -- Belt-and-suspenders: re-attempt provider selection if still on NullProvider.
+    -- tryUpgradeProvider handles the common case via C_Timer; this is a fallback
+    -- in case the upgrade window was missed. One comparison per rebuild — no cost.
+    -- providerName (second return of selectProvider) is intentionally discarded.
+    if AQL.provider == AQL.NullProvider then
+        local provider = selectProvider()
+        if provider ~= AQL.NullProvider then
+            AQL.provider = provider
+        end
+    end
+
     local oldCache = AQL.QuestCache:Rebuild()
     if oldCache == nil then return end  -- Rebuild failed (re-entrant guard from QuestCache side)
 
@@ -226,6 +265,12 @@ frame:SetScript("OnEvent", function(self, event, ...)
         frame:RegisterEvent("QUEST_LOG_UPDATE")
         frame:RegisterEvent("UNIT_QUEST_LOG_CHANGED")
         frame:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
+
+        -- Deferred provider upgrade: fires after all PLAYER_LOGIN handlers complete.
+        -- QuestWeaver is caught on the first attempt (its PLAYER_LOGIN handler runs
+        -- before C_Timer.After(0, ...) callbacks fire). Questie may take ~3 s;
+        -- retries cover up to 5 s total.
+        C_Timer.After(0, function() tryUpgradeProvider(MAX_DEFERRED_UPGRADE_ATTEMPTS) end)
 
     elseif event == "QUEST_TURNED_IN" then
         -- Pre-mark the quest as completed in HistoryCache so that when the
