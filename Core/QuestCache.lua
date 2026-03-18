@@ -21,6 +21,9 @@ function QuestCache:Rebuild()
     local originalSelection = GetQuestLogSelection()
 
     -- Phase 1: Collect collapsed zone headers.
+    if AQL.debug == "verbose" then
+        print(AQL.DBG .. "[AQL] QuestCache: phase 1 — collecting collapsed headers" .. AQL.RESET)
+    end
     local collapsedHeaders = {}
     local numEntries = GetNumQuestLogEntries()
     for i = 1, numEntries do
@@ -30,12 +33,22 @@ function QuestCache:Rebuild()
         end
     end
 
+    if AQL.debug == "verbose" then
+        print(AQL.DBG .. "[AQL] QuestCache: phase 1 — " .. tostring(#collapsedHeaders) ..
+              " collapsed headers found" .. AQL.RESET)
+    end
     -- Phase 2: Expand collapsed headers back-to-front to preserve earlier indices.
+    if AQL.debug == "verbose" then
+        print(AQL.DBG .. "[AQL] QuestCache: phase 2 — expanding headers" .. AQL.RESET)
+    end
     for k = #collapsedHeaders, 1, -1 do
         ExpandQuestHeader(collapsedHeaders[k].index)
     end
 
     -- Phase 3: Full rebuild — all quests now visible.
+    if AQL.debug == "verbose" then
+        print(AQL.DBG .. "[AQL] QuestCache: phase 3 — building entries" .. AQL.RESET)
+    end
     numEntries = GetNumQuestLogEntries()
     for i = 1, numEntries do
         -- TBC 20505: C_QuestLog.GetInfo() does not exist; use GetQuestLogTitle() global.
@@ -68,8 +81,16 @@ function QuestCache:Rebuild()
         end
     end
 
+    if AQL.debug then
+        local count = 0
+        for _ in pairs(new) do count = count + 1 end
+        print(AQL.DBG .. "[AQL] QuestCache rebuilt: " .. tostring(count) .. " quests" .. AQL.RESET)
+    end
     -- Phase 4: Re-collapse headers that were collapsed before rebuild.
     if #collapsedHeaders > 0 then
+        if AQL.debug == "verbose" then
+            print(AQL.DBG .. "[AQL] QuestCache: phase 4 — re-collapsing headers" .. AQL.RESET)
+        end
         local collapsedTitles = {}
         for _, h in ipairs(collapsedHeaders) do
             collapsedTitles[h.title] = true
@@ -89,6 +110,9 @@ function QuestCache:Rebuild()
     end
 
     -- Phase 5: Restore quest log selection.
+    if AQL.debug == "verbose" then
+        print(AQL.DBG .. "[AQL] QuestCache: phase 5 — restoring selection" .. AQL.RESET)
+    end
     SelectQuestLogEntry(originalSelection or 0)
 
     local old = self.data
@@ -160,6 +184,14 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
         if ok3 then questFaction = result3 end
     end
 
+    if AQL.debug == "verbose" then
+        local objCount = 0
+        for _ in ipairs(objectives) do objCount = objCount + 1 end
+        print(AQL.DBG .. "[AQL] QuestCache: built questID=" .. tostring(questID) ..
+              " \"" .. tostring(info.title or "") .. "\"" ..
+              " zone=\"" .. tostring(zone or "") .. "\"" ..
+              " objs=" .. tostring(objCount) .. AQL.RESET)
+    end
     return {
         questID        = questID,
         title          = info.title or "",
