@@ -20,7 +20,7 @@ AQL.EventEngine = EventEngine
 
 EventEngine.diffInProgress   = false
 EventEngine.initialized      = false
-EventEngine.pendingTurnIn    = {}  -- questIDs currently between QUEST_TURNED_IN and QUEST_REMOVED
+EventEngine.pendingTurnIn    = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
 
 -- Hidden event frame.
 local frame = CreateFrame("Frame")
@@ -29,6 +29,20 @@ EventEngine.frame = frame
 -- Number of deferred 1-second retry attempts after the initial frame-0 attempt.
 -- Total checks: 1 immediate (t=0) + 5 retries (t=1s–5s) = 6 total, up to 5 s.
 local MAX_DEFERRED_UPGRADE_ATTEMPTS = 5
+
+-- QUEST_TURNED_IN does not fire in TBC Classic (Interface 20505).
+-- Hook GetQuestReward instead: it fires synchronously when the player clicks
+-- the confirm button, before items are transferred. GetQuestID() returns the
+-- active questID at this point. This sets pendingTurnIn so that any objective
+-- regression events fired during item transfer are suppressed.
+-- The hook fires only on confirmation; cancelling the reward screen does not
+-- call GetQuestReward, so pendingTurnIn is never set on cancel.
+hooksecurefunc("GetQuestReward", function()
+    local questID = GetQuestID()
+    if questID and questID ~= 0 then
+        EventEngine.pendingTurnIn[questID] = true
+    end
+end)
 
 ------------------------------------------------------------------------
 -- Provider selection
@@ -261,7 +275,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- Register for quest events now that we're ready.
         frame:RegisterEvent("QUEST_ACCEPTED")
         frame:RegisterEvent("QUEST_REMOVED")
-        frame:RegisterEvent("QUEST_TURNED_IN")
         frame:RegisterEvent("QUEST_LOG_UPDATE")
         frame:RegisterEvent("UNIT_QUEST_LOG_CHANGED")
         frame:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
@@ -271,26 +284,6 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- before C_Timer.After(0, ...) callbacks fire). Questie may take ~3 s;
         -- retries cover up to 5 s total.
         C_Timer.After(0, function() tryUpgradeProvider(MAX_DEFERRED_UPGRADE_ATTEMPTS) end)
-
-    elseif event == "QUEST_TURNED_IN" then
-        -- Pre-mark the quest as completed in HistoryCache so that when the
-        -- subsequent QUEST_REMOVED / QUEST_LOG_UPDATE diff sees the quest
-        -- disappear from the log, it correctly identifies it as a turn-in
-        -- (HasCompleted → true) rather than an abandonment.
-        -- Do NOT call handleQuestLogUpdate() here: at this moment the quest
-        -- is still in the log but item objectives have already dropped to zero
-        -- (items handed to the NPC), which would fire AQL_OBJECTIVE_REGRESSED
-        -- spuriously. QUEST_REMOVED fires next, after the quest is fully
-        -- removed, and produces AQL_QUEST_COMPLETED correctly.
-        -- pendingTurnIn suppresses AQL_OBJECTIVE_REGRESSED in any diff that
-        -- runs while the quest is in this window (e.g. UNIT_QUEST_LOG_CHANGED).
-        -- In TBC Classic, QUEST_TURNED_IN passes: questID, xpReward, moneyReward.
-        local questID = ...
-        if questID and type(questID) == "number" then
-            EventEngine.pendingTurnIn[questID] = true
-            AQL.HistoryCache:MarkCompleted(questID)
-        end
-
     elseif event == "UNIT_QUEST_LOG_CHANGED" then
         local unit = ...
         if unit ~= "player" then
