@@ -20,11 +20,29 @@ AQL.EventEngine = EventEngine
 
 EventEngine.diffInProgress   = false
 EventEngine.initialized      = false
-EventEngine.pendingTurnIn    = {}  -- questIDs currently between QUEST_TURNED_IN and QUEST_REMOVED
+EventEngine.pendingTurnIn    = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
 
 -- Hidden event frame.
 local frame = CreateFrame("Frame")
 EventEngine.frame = frame
+
+-- Number of deferred 1-second retry attempts after the initial frame-0 attempt.
+-- Total checks: 1 immediate (t=0) + 5 retries (t=1s–5s) = 6 total, up to 5 s.
+local MAX_DEFERRED_UPGRADE_ATTEMPTS = 5
+
+-- QUEST_TURNED_IN does not fire in TBC Classic (Interface 20505).
+-- Hook GetQuestReward instead: it fires synchronously when the player clicks
+-- the confirm button, before items are transferred. GetQuestID() returns the
+-- active questID at this point. This sets pendingTurnIn so that any objective
+-- regression events fired during item transfer are suppressed.
+-- The hook fires only on confirmation; cancelling the reward screen does not
+-- call GetQuestReward, so pendingTurnIn is never set on cancel.
+hooksecurefunc("GetQuestReward", function()
+    local questID = GetQuestID()
+    if questID and questID ~= 0 then
+        EventEngine.pendingTurnIn[questID] = true
+    end
+end)
 
 ------------------------------------------------------------------------
 -- Provider selection
@@ -53,6 +71,30 @@ local function selectProvider()
 
     -- Fallback.
     return AQL.NullProvider, "none"
+end
+
+-- Retries provider selection until a real provider is found or attempts run out.
+-- Called once from PLAYER_LOGIN via C_Timer.After(0, ...) so it fires after all
+-- other addons' PLAYER_LOGIN handlers complete. Retries every 1 s for up to 5 s
+-- to catch Questie, whose async init coroutine takes ~3 s.
+-- On success, rebuilds the cache immediately so chain data is populated without
+-- waiting for the next game event. The old-cache return value from Rebuild() is
+-- intentionally discarded — no diff is needed, only a data refresh.
+-- providerName (second return of selectProvider) is intentionally discarded;
+-- it is not stored on AQL anywhere in this file.
+local function tryUpgradeProvider(attemptsLeft)
+    if AQL.provider ~= AQL.NullProvider then return end  -- already upgraded
+
+    local provider = selectProvider()
+    if provider ~= AQL.NullProvider then
+        AQL.provider = provider
+        AQL.QuestCache:Rebuild()
+        return
+    end
+
+    if attemptsLeft > 0 then
+        C_Timer.After(1, function() tryUpgradeProvider(attemptsLeft - 1) end)
+    end
 end
 
 ------------------------------------------------------------------------
@@ -84,11 +126,14 @@ local function runDiff(oldCache)
             if not newCache[questID] then
                 -- Quest was removed from the log.
                 EventEngine.pendingTurnIn[questID] = nil
-                if histCache and histCache:HasCompleted(questID) then
-                    -- Already recorded by the QUEST_TURNED_IN handler before this
-                    -- diff ran. MarkCompleted is idempotent so calling it again is
-                    -- safe and ensures correctness if QUEST_TURNED_IN was missed.
-                    histCache:MarkCompleted(questID)
+                if (histCache and histCache:HasCompleted(questID))
+                   or WowQuestAPI.IsQuestFlaggedCompleted(questID) then
+                    -- IsQuestFlaggedCompleted is the server-authoritative completion
+                    -- flag; it returns true after turn-in, before QUEST_REMOVED fires.
+                    -- HasCompleted covers quests completed in previous sessions.
+                    -- MarkCompleted is idempotent; the histCache guard is defensive
+                    -- (histCache is always non-nil post-login but nil-safety is kept).
+                    if histCache then histCache:MarkCompleted(questID) end
                     AQL.callbacks:Fire("AQL_QUEST_COMPLETED", oldInfo)
                 else
                     -- No completion record. Infer failure from the last snapshot.
@@ -196,6 +241,17 @@ end
 local function handleQuestLogUpdate()
     if not EventEngine.initialized then return end
 
+    -- Belt-and-suspenders: re-attempt provider selection if still on NullProvider.
+    -- tryUpgradeProvider handles the common case via C_Timer; this is a fallback
+    -- in case the upgrade window was missed. One comparison per rebuild — no cost.
+    -- providerName (second return of selectProvider) is intentionally discarded.
+    if AQL.provider == AQL.NullProvider then
+        local provider = selectProvider()
+        if provider ~= AQL.NullProvider then
+            AQL.provider = provider
+        end
+    end
+
     local oldCache = AQL.QuestCache:Rebuild()
     if oldCache == nil then return end  -- Rebuild failed (re-entrant guard from QuestCache side)
 
@@ -222,30 +278,15 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- Register for quest events now that we're ready.
         frame:RegisterEvent("QUEST_ACCEPTED")
         frame:RegisterEvent("QUEST_REMOVED")
-        frame:RegisterEvent("QUEST_TURNED_IN")
         frame:RegisterEvent("QUEST_LOG_UPDATE")
         frame:RegisterEvent("UNIT_QUEST_LOG_CHANGED")
         frame:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
 
-    elseif event == "QUEST_TURNED_IN" then
-        -- Pre-mark the quest as completed in HistoryCache so that when the
-        -- subsequent QUEST_REMOVED / QUEST_LOG_UPDATE diff sees the quest
-        -- disappear from the log, it correctly identifies it as a turn-in
-        -- (HasCompleted → true) rather than an abandonment.
-        -- Do NOT call handleQuestLogUpdate() here: at this moment the quest
-        -- is still in the log but item objectives have already dropped to zero
-        -- (items handed to the NPC), which would fire AQL_OBJECTIVE_REGRESSED
-        -- spuriously. QUEST_REMOVED fires next, after the quest is fully
-        -- removed, and produces AQL_QUEST_COMPLETED correctly.
-        -- pendingTurnIn suppresses AQL_OBJECTIVE_REGRESSED in any diff that
-        -- runs while the quest is in this window (e.g. UNIT_QUEST_LOG_CHANGED).
-        -- In TBC Classic, QUEST_TURNED_IN passes: questID, xpReward, moneyReward.
-        local questID = ...
-        if questID and type(questID) == "number" then
-            EventEngine.pendingTurnIn[questID] = true
-            AQL.HistoryCache:MarkCompleted(questID)
-        end
-
+        -- Deferred provider upgrade: fires after all PLAYER_LOGIN handlers complete.
+        -- QuestWeaver is caught on the first attempt (its PLAYER_LOGIN handler runs
+        -- before C_Timer.After(0, ...) callbacks fire). Questie may take ~3 s;
+        -- retries cover up to 5 s total.
+        C_Timer.After(0, function() tryUpgradeProvider(MAX_DEFERRED_UPGRADE_ATTEMPTS) end)
     elseif event == "UNIT_QUEST_LOG_CHANGED" then
         local unit = ...
         if unit ~= "player" then

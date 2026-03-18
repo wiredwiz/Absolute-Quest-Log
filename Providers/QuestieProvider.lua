@@ -1,9 +1,10 @@
 -- Providers/QuestieProvider.lua
--- Reads chain metadata from QuestieDB if Questie is installed.
--- Questie stores quest data under QuestieDB.GetQuest(questID).
--- Relevant fields on a quest object (questie v11.x):
+-- Reads chain metadata from Questie if installed.
+-- Questie stores quest data in a private module system (QuestieLoader).
+-- Access path: QuestieLoader:ImportModule("QuestieDB").GetQuest(questID)
+-- Relevant fields on a quest object:
 --   quest.nextQuestInChain  (questID of next step, or 0)
--- Type info comes from quest.requiredClasses / questTagIds in QuestieDB.
+-- Type info comes from quest.questTagId / quest.questFlags.
 
 local AQL = LibStub("AbsoluteQuestLog-1.0", true)
 if not AQL then return end
@@ -17,10 +18,24 @@ local TAG_ELITE   = 1
 local TAG_RAID    = 62
 local TAG_DUNGEON = 81
 
+-- Returns the live QuestieDB module reference, or nil if Questie is not loaded
+-- or its database has not yet been compiled (Initialize() not yet run).
+-- pcall guards against ImportModule calling error() when the module is not
+-- registered (can happen if Questie is present but partially initialized).
+-- pcall cannot use colon syntax; self must be passed as the first argument explicitly.
+local function getDB()
+    if type(QuestieLoader) ~= "table" then return nil end
+    local ok, db = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieDB")
+    if not ok or not db or type(db.GetQuest) ~= "function" then return nil end
+    -- QuestPointers is set by QuestieDB:Initialize(), which runs asynchronously
+    -- after PLAYER_LOGIN. Nil here means the database is not compiled yet.
+    if db.QuestPointers == nil then return nil end
+    return db
+end
+
 -- Returns true if Questie is available and the provider can be used.
 function QuestieProvider:IsAvailable()
-    return type(QuestieDB) == "table"
-        and type(QuestieDB.GetQuest) == "function"
+    return getDB() ~= nil
 end
 
 -- Lazy reverse-index: reverseChain[N] = questID whose nextQuestInChain == N.
@@ -33,14 +48,16 @@ local reverseChain = nil
 
 local function buildReverseChain()
     if reverseChain then return reverseChain end
+    local db = getDB()
+    if not db then return {} end  -- DB not ready; return empty but don't cache
     reverseChain = {}
-    local pointers = QuestieDB.QuestPointers or QuestieDB.questPointers
+    local pointers = db.QuestPointers or db.questPointers
     if type(pointers) ~= "table" then
         -- QuestPointers not available in this Questie version. reverseChain stays empty.
         return reverseChain
     end
     for questID in pairs(pointers) do
-        local ok, q = pcall(QuestieDB.GetQuest, questID)
+        local ok, q = pcall(db.GetQuest, questID)
         if ok and q and q.nextQuestInChain and q.nextQuestInChain ~= 0 then
             reverseChain[q.nextQuestInChain] = questID
         end
@@ -63,7 +80,9 @@ end
 -- Build a chain starting from the true root, following nextQuestInChain forward.
 -- Returns { chainRoot, steps[] } or nil if the quest is not part of a chain.
 local function buildChain(startQuestID)
-    local quest = QuestieDB.GetQuest(startQuestID)
+    local db = getDB()
+    if not db then return nil end
+    local quest = db.GetQuest(startQuestID)
     if not quest then return nil end
 
     local nextID = quest.nextQuestInChain
@@ -86,7 +105,7 @@ local function buildChain(startQuestID)
 
     while current do
         table.insert(steps, { questID = current })
-        local q = QuestieDB.GetQuest(current)
+        local q = db.GetQuest(current)
         local nxt = q and q.nextQuestInChain
         if not nxt or nxt == 0 or visited[nxt] then break end
         visited[nxt] = true
@@ -99,6 +118,8 @@ local function buildChain(startQuestID)
 end
 
 function QuestieProvider:GetChainInfo(questID)
+    local db = getDB()
+    if not db then return { knownStatus = "unknown" } end
     local chain = buildChain(questID)
     if not chain then
         return { knownStatus = "not_a_chain" }
@@ -143,7 +164,7 @@ function QuestieProvider:GetChainInfo(questID)
             -- return data for it (QuestieDB.GetQuest returns nil). Only applies
             -- when the chain itself is known (knownStatus = "known") but this
             -- individual step's questID is missing from QuestieDB.
-            local stepQuestData = QuestieDB.GetQuest(sid)
+            local stepQuestData = db.GetQuest(sid)
             -- Use `questID` (the parameter of GetChainInfo) not `startQuestID`
             -- (which is local to buildChain and out of scope here).
             if not stepQuestData and sid ~= questID then
@@ -159,7 +180,7 @@ function QuestieProvider:GetChainInfo(questID)
 
         -- Title: prefer Questie's stored name, fall back to C_QuestLog.GetQuestInfo
         -- (returns title string only in TBC 20505), then a numeric placeholder.
-        local sq = QuestieDB.GetQuest(sid)
+        local sq = db.GetQuest(sid)
         s.title = (sq and sq.name) or C_QuestLog.GetQuestInfo(sid) or ("Quest "..sid)  -- pre-existing; AQL internal migration deferred
     end
 
@@ -182,8 +203,9 @@ end
 -- Zone: C_Map.GetAreaInfo(quest.zoneOrSort) returns the localized zone name string when
 -- zoneOrSort > 0. Negative values are quest categories (not geographic zones) — omit.
 function QuestieProvider:GetQuestBasicInfo(questID)
-    if not self:IsAvailable() then return nil end
-    local ok, quest = pcall(QuestieDB.GetQuest, questID)
+    local db = getDB()
+    if not db then return nil end
+    local ok, quest = pcall(db.GetQuest, questID)
     if not ok or not quest then return nil end
     local zone
     if quest.zoneOrSort and quest.zoneOrSort > 0 then
@@ -198,7 +220,9 @@ function QuestieProvider:GetQuestBasicInfo(questID)
 end
 
 function QuestieProvider:GetQuestType(questID)
-    local quest = QuestieDB.GetQuest(questID)
+    local db = getDB()
+    if not db then return nil end
+    local quest = db.GetQuest(questID)
     if not quest then return nil end
 
     -- questTagIds field stores the quest's tag (from QuestieDB questKeys).
@@ -217,7 +241,9 @@ function QuestieProvider:GetQuestType(questID)
 end
 
 function QuestieProvider:GetQuestFaction(questID)
-    local quest = QuestieDB.GetQuest(questID)
+    local db = getDB()
+    if not db then return nil end
+    local quest = db.GetQuest(questID)
     if not quest then return nil end
     -- Questie stores faction as a numeric: 0 = any, 1 = Horde, 2 = Alliance
     if quest.requiredFaction == 1 then return "Horde"    end
