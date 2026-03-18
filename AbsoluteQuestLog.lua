@@ -181,6 +181,23 @@ function AQL:GetQuestObjectives(questID)
     return WowQuestAPI.GetQuestObjectives(questID)
 end
 
+-- Returns true if msg exactly matches the text of any objective in the active quest
+-- cache. Used by SocialQuest to identify UI_INFO_MESSAGE events that duplicate its
+-- own objective-progress banner. Reads from the live quest cache; the cache is always
+-- complete because QuestCache:Rebuild() expands collapsed zones before reading.
+function AQL:IsQuestObjectiveText(msg)
+    if not msg then return false end
+    if not self.QuestCache then return false end
+    for _, quest in pairs(self.QuestCache.data) do
+        if quest.objectives then
+            for _, obj in ipairs(quest.objectives) do
+                if obj.text == msg then return true end
+            end
+        end
+    end
+    return false
+end
+
 -- Tracks a quest by questID.
 -- Returns false if the watch cap (MAX_WATCHABLE_QUESTS) is already reached.
 -- Returns true if the quest was successfully handed to AddQuestWatch.
