@@ -12,6 +12,7 @@ AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 -- Chat color escape sequences for debug/error messages.
 AQL.RED   = "|cffff0000"
 AQL.RESET = "|r"
+AQL.DBG   = "|cFFFFD200"   -- gold (colorblind-safe, distinct from errors and chat text)
 
 -- Sub-module slots — populated by the files that load after this one.
 -- AbsoluteQuestLog.lua loads first (per TOC order), so these are nil until
@@ -228,4 +229,25 @@ end
 -- Returns bool on Retail (UnitIsOnQuest exists), nil on TBC/Classic.
 function AQL:IsUnitOnQuest(questID, unit)
     return WowQuestAPI.IsUnitOnQuest(questID, unit)
+end
+
+------------------------------------------------------------------------
+-- Slash command
+------------------------------------------------------------------------
+
+SLASH_ABSOLUTEQUESTLOG1 = "/aql"
+SlashCmdList["ABSOLUTEQUESTLOG"] = function(input)
+    local cmd = strtrim(input or ""):lower()
+    if cmd == "on" or cmd == "normal" then
+        AQL.debug = "normal"
+        print(AQL.DBG .. "[AQL] Debug mode: normal" .. AQL.RESET)
+    elseif cmd == "verbose" then
+        AQL.debug = "verbose"
+        print(AQL.DBG .. "[AQL] Debug mode: verbose" .. AQL.RESET)
+    elseif cmd == "off" then
+        AQL.debug = nil
+        print(AQL.DBG .. "[AQL] Debug mode: off" .. AQL.RESET)
+    else
+        print(AQL.DBG .. "[AQL] Usage: /aql [on|normal|verbose|off]" .. AQL.RESET)
+    end
 end
