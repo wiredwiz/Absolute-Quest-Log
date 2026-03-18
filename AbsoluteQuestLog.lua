@@ -77,8 +77,19 @@ function AQL:GetQuestType(questID)
 end
 
 function AQL:GetQuestLink(questID)
+    -- Tier 1: live cache (always non-nil for active quests; see _buildEntry fallback).
     local q = self.QuestCache and self.QuestCache:Get(questID)
-    return q and q.link or nil
+    if q and q.link then return q.link end
+
+    -- Tier 2+3: quest not in active log — resolve via GetQuestInfo (which itself
+    -- chains: QuestCache → WoW log scan → provider). The QuestCache check above
+    -- already handled Tier 1, so in practice GetQuestInfo will reach Tier 2 or 3.
+    -- If the provider returns chain-only data with no title, info.title will be nil
+    -- and we return nil — a link cannot be constructed without a title.
+    local info = self:GetQuestInfo(questID)
+    if not info or not info.title then return nil end
+    return string.format("|cFFFFD200|Hquest:%d:%d|h[%s]|h|r",
+        questID, info.level or 0, info.title)
 end
 
 ------------------------------------------------------------------------
