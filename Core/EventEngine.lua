@@ -126,11 +126,14 @@ local function runDiff(oldCache)
             if not newCache[questID] then
                 -- Quest was removed from the log.
                 EventEngine.pendingTurnIn[questID] = nil
-                if histCache and histCache:HasCompleted(questID) then
-                    -- Already recorded by the QUEST_TURNED_IN handler before this
-                    -- diff ran. MarkCompleted is idempotent so calling it again is
-                    -- safe and ensures correctness if QUEST_TURNED_IN was missed.
-                    histCache:MarkCompleted(questID)
+                if (histCache and histCache:HasCompleted(questID))
+                   or WowQuestAPI.IsQuestFlaggedCompleted(questID) then
+                    -- IsQuestFlaggedCompleted is the server-authoritative completion
+                    -- flag; it returns true after turn-in, before QUEST_REMOVED fires.
+                    -- HasCompleted covers quests completed in previous sessions.
+                    -- MarkCompleted is idempotent; the histCache guard is defensive
+                    -- (histCache is always non-nil post-login but nil-safety is kept).
+                    if histCache then histCache:MarkCompleted(questID) end
                     AQL.callbacks:Fire("AQL_QUEST_COMPLETED", oldInfo)
                 else
                     -- No completion record. Infer failure from the last snapshot.
