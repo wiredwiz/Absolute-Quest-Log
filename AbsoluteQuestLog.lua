@@ -181,17 +181,27 @@ function AQL:GetQuestObjectives(questID)
     return WowQuestAPI.GetQuestObjectives(questID)
 end
 
--- Returns true if msg exactly matches the text of any objective in the active quest
--- cache. Used by SocialQuest to identify UI_INFO_MESSAGE events that duplicate its
--- own objective-progress banner. Reads from the live quest cache; the cache is always
--- complete because QuestCache:Rebuild() expands collapsed zones before reading.
+-- Returns true if msg's base name (description without ": X/Y" count) matches
+-- the leading text of any objective in the active quest cache. The pattern is
+-- applied once to msg; each objective is checked with a plain string.sub
+-- comparison so no regex runs inside the loop. A stale cache (previous count)
+-- still matches an incoming UI_INFO_MESSAGE (new count) because only the base
+-- description is compared. Used by SocialQuest to identify UI_INFO_MESSAGE
+-- events that duplicate its own objective-progress banner. Reads from the live
+-- quest cache; the cache is always complete because QuestCache:Rebuild() expands
+-- collapsed zones before reading.
 function AQL:IsQuestObjectiveText(msg)
     if not msg then return false end
     if not self.QuestCache then return false end
+    local msgBase = msg:match("^(.+):%s*%d+/%d+$")
+    if not msgBase then return false end
+    local baseLen = #msgBase
     for _, quest in pairs(self.QuestCache.data) do
         if quest.objectives then
             for _, obj in ipairs(quest.objectives) do
-                if obj.text == msg then return true end
+                if obj.text and obj.text:sub(1, baseLen) == msgBase then
+                    return true
+                end
             end
         end
     end
