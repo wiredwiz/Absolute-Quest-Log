@@ -18,7 +18,6 @@ QuestCache.data = {}
 function QuestCache:Rebuild()
     local new = {}
     local currentZone = nil
-    local logIndexByQuestID = {}
     local originalSelection = GetQuestLogSelection()
 
     -- Phase 1: Collect collapsed zone headers.
@@ -57,7 +56,6 @@ function QuestCache:Rebuild()
             if info.isHeader then
                 currentZone = info.title
             else
-                logIndexByQuestID[questID] = i
                 -- Wrap each entry build in pcall so one bad entry never aborts the loop.
                 local ok, entryOrErr = pcall(self._buildEntry, self, questID, info, currentZone, i)
                 if ok and entryOrErr then
