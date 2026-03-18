@@ -17,23 +17,33 @@ QuestCache.data = {}
 -- Returns the previous cache table so callers can diff.
 function QuestCache:Rebuild()
     local new = {}
-    local numEntries = GetNumQuestLogEntries()  -- TBC 20505: global, returns numEntries, numQuests
     local currentZone = nil
-
-    -- Build a logIndex-by-questID map during iteration (needed for timer queries).
-    local logIndexByQuestID = {}
-
-    -- Preserve the player's current quest log selection.
-    -- _buildEntry calls SelectQuestLogEntry() to read timer data; without this
-    -- the player's selected entry would silently shift to the last processed quest.
     local originalSelection = GetQuestLogSelection()
 
+    -- Phase 1: Collect collapsed zone headers.
+    local collapsedHeaders = {}
+    local numEntries = GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local title, _, _, isHeader, isCollapsed = GetQuestLogTitle(i)
+        if title and isHeader and isCollapsed then
+            table.insert(collapsedHeaders, { index = i, title = title })
+        end
+    end
+
+    -- Phase 2: Expand collapsed headers back-to-front to preserve earlier indices.
+    for k = #collapsedHeaders, 1, -1 do
+        ExpandQuestHeader(collapsedHeaders[k].index)
+    end
+
+    -- Phase 3: Full rebuild — all quests now visible.
+    numEntries = GetNumQuestLogEntries()
     for i = 1, numEntries do
         -- TBC 20505: C_QuestLog.GetInfo() does not exist; use GetQuestLogTitle() global.
         -- Returns: title, level, suggestedGroup, isHeader, isCollapsed, isComplete,
         --          frequency, questID, startEvent, displayQuestID, isOnMap, hasLocalPOI,
         --          isTask, isBounty, isStory, isHidden, isScaling
-        local title, level, suggestedGroup, isHeader, _, isComplete, _, questID = GetQuestLogTitle(i)
+        local title, level, suggestedGroup, isHeader, _, isComplete, _, questID =
+            GetQuestLogTitle(i)
         if title then
             local info = {
                 title          = title,
@@ -46,19 +56,40 @@ function QuestCache:Rebuild()
             if info.isHeader then
                 currentZone = info.title
             else
-                logIndexByQuestID[questID] = i
                 -- Wrap each entry build in pcall so one bad entry never aborts the loop.
                 local ok, entryOrErr = pcall(self._buildEntry, self, questID, info, currentZone, i)
                 if ok and entryOrErr then
                     new[questID] = entryOrErr
                 elseif not ok and AQL.debug then
-                    print(AQL.RED .. "[AQL] QuestCache: error building entry for questID " .. tostring(questID) .. ": " .. tostring(entryOrErr) .. AQL.RESET)
+                    print(AQL.RED .. "[AQL] QuestCache: error building entry for questID "
+                        .. tostring(questID) .. ": " .. tostring(entryOrErr) .. AQL.RESET)
                 end
             end
         end
     end
 
-    SelectQuestLogEntry(originalSelection or 0)  -- restore player's selection
+    -- Phase 4: Re-collapse headers that were collapsed before rebuild.
+    if #collapsedHeaders > 0 then
+        local collapsedTitles = {}
+        for _, h in ipairs(collapsedHeaders) do
+            collapsedTitles[h.title] = true
+        end
+        local toCollapse = {}
+        numEntries = GetNumQuestLogEntries()
+        for i = 1, numEntries do
+            local title, _, _, isHeader = GetQuestLogTitle(i)
+            if title and isHeader and collapsedTitles[title] then
+                table.insert(toCollapse, i)
+            end
+        end
+        -- Collapse back-to-front to preserve earlier indices.
+        for k = #toCollapse, 1, -1 do
+            CollapseQuestHeader(toCollapse[k])
+        end
+    end
+
+    -- Phase 5: Restore quest log selection.
+    SelectQuestLogEntry(originalSelection or 0)
 
     local old = self.data
     self.data = new
