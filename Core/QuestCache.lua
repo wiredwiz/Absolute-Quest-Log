@@ -136,8 +136,13 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     local rawTimer = GetQuestLogTimeLeft()
     local timerSeconds = (rawTimer and rawTimer > 0) and rawTimer or nil
 
-    -- Quest link.
+    -- Quest link: prefer the WoW native API; construct manually if it returns nil
+    -- so every QuestCache entry has a valid hyperlink regardless of client version.
     local link = GetQuestLink(logIndex)
+    if not link then
+        link = string.format("|cFFFFD200|Hquest:%d:%d|h[%s]|h|r",
+            questID, info.level or 0, info.title or ("Quest " .. questID))
+    end
 
     -- isTracked: IsQuestWatched takes a quest log index.
     local isTracked = IsQuestWatched(logIndex) == true
