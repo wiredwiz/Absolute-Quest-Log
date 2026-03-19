@@ -12,6 +12,7 @@ AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 -- Chat color escape sequences for debug/error messages.
 AQL.RED   = "|cffff0000"
 AQL.RESET = "|r"
+AQL.DBG   = "|cFFFFD200"   -- gold (colorblind-safe, distinct from errors and chat text)
 
 -- Sub-module slots — populated by the files that load after this one.
 -- AbsoluteQuestLog.lua loads first (per TOC order), so these are nil until
@@ -76,8 +77,19 @@ function AQL:GetQuestType(questID)
 end
 
 function AQL:GetQuestLink(questID)
+    -- Tier 1: live cache (always non-nil for active quests; see _buildEntry fallback).
     local q = self.QuestCache and self.QuestCache:Get(questID)
-    return q and q.link or nil
+    if q and q.link then return q.link end
+
+    -- Tier 2+3: quest not in active log — resolve via GetQuestInfo (which itself
+    -- chains: QuestCache → WoW log scan → provider). The QuestCache check above
+    -- already handled Tier 1, so in practice GetQuestInfo will reach Tier 2 or 3.
+    -- If the provider returns chain-only data with no title, info.title will be nil
+    -- and we return nil — a link cannot be constructed without a title.
+    local info = self:GetQuestInfo(questID)
+    if not info or not info.title then return nil end
+    return string.format("|cFFFFD200|Hquest:%d:%d|h[%s]|h|r",
+        questID, info.level or 0, info.title)
 end
 
 ------------------------------------------------------------------------
@@ -228,4 +240,32 @@ end
 -- Returns bool on Retail (UnitIsOnQuest exists), nil on TBC/Classic.
 function AQL:IsUnitOnQuest(questID, unit)
     return WowQuestAPI.IsUnitOnQuest(questID, unit)
+end
+
+------------------------------------------------------------------------
+-- Slash command
+------------------------------------------------------------------------
+
+SLASH_ABSOLUTEQUESTLOG1 = "/aql"
+SlashCmdList["ABSOLUTEQUESTLOG"] = function(input)
+    -- Look up the library at call time so this handler is robust even if the
+    -- file was loaded more than once (e.g. two copies on the load path).
+    local aql = LibStub("AbsoluteQuestLog-1.0", true)
+    if not aql then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[AQL] Error: library not loaded|r")
+        return
+    end
+    local cmd = (input or ""):match("^%s*(.-)%s*$"):lower()
+    if cmd == "on" or cmd == "normal" then
+        aql.debug = "normal"
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: normal" .. aql.RESET)
+    elseif cmd == "verbose" then
+        aql.debug = "verbose"
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: verbose" .. aql.RESET)
+    elseif cmd == "off" then
+        aql.debug = nil
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: off" .. aql.RESET)
+    else
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql [on|normal|verbose|off]" .. aql.RESET)
+    end
 end
