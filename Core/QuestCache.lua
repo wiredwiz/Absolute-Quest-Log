@@ -22,7 +22,7 @@ function QuestCache:Rebuild()
 
     -- Phase 1: Collect collapsed zone headers.
     if AQL.debug == "verbose" then
-        print(AQL.DBG .. "[AQL] QuestCache: phase 1 — collecting collapsed headers" .. AQL.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 1 — collecting collapsed headers" .. AQL.RESET)
     end
     local collapsedHeaders = {}
     local numEntries = GetNumQuestLogEntries()
@@ -34,12 +34,12 @@ function QuestCache:Rebuild()
     end
 
     if AQL.debug == "verbose" then
-        print(AQL.DBG .. "[AQL] QuestCache: phase 1 — " .. tostring(#collapsedHeaders) ..
+        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 1 — " .. tostring(#collapsedHeaders) ..
               " collapsed headers found" .. AQL.RESET)
     end
     -- Phase 2: Expand collapsed headers back-to-front to preserve earlier indices.
     if AQL.debug == "verbose" then
-        print(AQL.DBG .. "[AQL] QuestCache: phase 2 — expanding headers" .. AQL.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 2 — expanding headers" .. AQL.RESET)
     end
     for k = #collapsedHeaders, 1, -1 do
         ExpandQuestHeader(collapsedHeaders[k].index)
@@ -47,7 +47,7 @@ function QuestCache:Rebuild()
 
     -- Phase 3: Full rebuild — all quests now visible.
     if AQL.debug == "verbose" then
-        print(AQL.DBG .. "[AQL] QuestCache: phase 3 — building entries" .. AQL.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 3 — building entries" .. AQL.RESET)
     end
     numEntries = GetNumQuestLogEntries()
     for i = 1, numEntries do
@@ -74,7 +74,7 @@ function QuestCache:Rebuild()
                 if ok and entryOrErr then
                     new[questID] = entryOrErr
                 elseif not ok and AQL.debug then
-                    print(AQL.RED .. "[AQL] QuestCache: error building entry for questID "
+                    DEFAULT_CHAT_FRAME:AddMessage(AQL.RED .. "[AQL] QuestCache: error building entry for questID "
                         .. tostring(questID) .. ": " .. tostring(entryOrErr) .. AQL.RESET)
                 end
             end
@@ -84,12 +84,12 @@ function QuestCache:Rebuild()
     if AQL.debug then
         local count = 0
         for _ in pairs(new) do count = count + 1 end
-        print(AQL.DBG .. "[AQL] QuestCache rebuilt: " .. tostring(count) .. " quests" .. AQL.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache rebuilt: " .. tostring(count) .. " quests" .. AQL.RESET)
     end
     -- Phase 4: Re-collapse headers that were collapsed before rebuild.
     if #collapsedHeaders > 0 then
         if AQL.debug == "verbose" then
-            print(AQL.DBG .. "[AQL] QuestCache: phase 4 — re-collapsing headers" .. AQL.RESET)
+            DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 4 — re-collapsing headers" .. AQL.RESET)
         end
         local collapsedTitles = {}
         for _, h in ipairs(collapsedHeaders) do
@@ -111,7 +111,7 @@ function QuestCache:Rebuild()
 
     -- Phase 5: Restore quest log selection.
     if AQL.debug == "verbose" then
-        print(AQL.DBG .. "[AQL] QuestCache: phase 5 — restoring selection" .. AQL.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 5 — restoring selection" .. AQL.RESET)
     end
     SelectQuestLogEntry(originalSelection or 0)
 
@@ -192,7 +192,7 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     if AQL.debug == "verbose" then
         local objCount = 0
         for _ in ipairs(objectives) do objCount = objCount + 1 end
-        print(AQL.DBG .. "[AQL] QuestCache: built questID=" .. tostring(questID) ..
+        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: built questID=" .. tostring(questID) ..
               " \"" .. tostring(info.title or "") .. "\"" ..
               " zone=\"" .. tostring(zone or "") .. "\"" ..
               " objs=" .. tostring(objCount) .. AQL.RESET)
