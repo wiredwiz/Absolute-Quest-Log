@@ -248,17 +248,24 @@ end
 
 SLASH_ABSOLUTEQUESTLOG1 = "/aql"
 SlashCmdList["ABSOLUTEQUESTLOG"] = function(input)
-    local cmd = strtrim(input or ""):lower()
+    -- Look up the library at call time so this handler is robust even if the
+    -- file was loaded more than once (e.g. two copies on the load path).
+    local aql = LibStub("AbsoluteQuestLog-1.0", true)
+    if not aql then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[AQL] Error: library not loaded|r")
+        return
+    end
+    local cmd = (input or ""):match("^%s*(.-)%s*$"):lower()
     if cmd == "on" or cmd == "normal" then
-        AQL.debug = "normal"
-        print(AQL.DBG .. "[AQL] Debug mode: normal" .. AQL.RESET)
+        aql.debug = "normal"
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: normal" .. aql.RESET)
     elseif cmd == "verbose" then
-        AQL.debug = "verbose"
-        print(AQL.DBG .. "[AQL] Debug mode: verbose" .. AQL.RESET)
+        aql.debug = "verbose"
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: verbose" .. aql.RESET)
     elseif cmd == "off" then
-        AQL.debug = nil
-        print(AQL.DBG .. "[AQL] Debug mode: off" .. AQL.RESET)
+        aql.debug = nil
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: off" .. aql.RESET)
     else
-        print(AQL.DBG .. "[AQL] Usage: /aql [on|normal|verbose|off]" .. AQL.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql [on|normal|verbose|off]" .. aql.RESET)
     end
 end
