@@ -14,7 +14,7 @@ if not AQL then return end
 local EventEngine = {}
 AQL.EventEngine = EventEngine
 
--- EventEngine writes reason strings here ("timeout", "escort_died", "unknown");
+-- EventEngine writes reason strings here (AQL.FailReason.Timeout, AQL.FailReason.EscortDied, or nil);
 -- QuestCache reads during _buildEntry to populate QuestInfo.failReason.
 -- (QuestCache.failedSet is initialized in QuestCache.lua; we just write to it.)
 
