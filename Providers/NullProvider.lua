@@ -8,7 +8,7 @@ if not AQL then return end
 local NullProvider = {}
 
 function NullProvider:GetChainInfo(questID)
-    return { knownStatus = "unknown" }
+    return { knownStatus = AQL.ChainStatus.Unknown }
 end
 
 function NullProvider:GetQuestType(questID)
