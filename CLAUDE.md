@@ -205,7 +205,7 @@ All provider calls in EventEngine are wrapped in `pcall`. A provider that errors
 
 ## Debug System
 
-`/aql [on|normal|verbose|off]` — Controls debug output to `DEFAULT_CHAT_FRAME`.
+`/aql debug [on|normal|verbose|off]` — Controls debug output to `DEFAULT_CHAT_FRAME`.
 
 - `on` / `normal` — Log key events: quest accepted/completed/failed/abandoned, cache rebuild count, provider selection, objective changes.
 - `verbose` — Everything above plus: each cache phase, every quest entry built, diff start/end, all event firings.
@@ -222,6 +222,11 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ---
 
 ## Version History
+
+### Version 2.1.0 (March 2026)
+- Added `AQL.ChainStatus`, `AQL.StepStatus`, `AQL.Provider`, `AQL.QuestType`, `AQL.Faction`, `AQL.FailReason` enumeration constant tables; all raw string literals in AQL source replaced with these constants
+- Fixed `AQL:GetQuestInfo` Tier 2→3 augmentation: remote quests now resolve zone, level, and chainInfo from Questie/QuestWeaver when not in the player's log (fixes "Other Quests" grouping in SocialQuest Party tab)
+- Restructured `/aql` slash command: debug mode now requires `/aql debug [on|normal|verbose|off]`
 
 ### Version 2.0 (March 2026)
 - Initial full implementation: LibStub library, QuestCache, HistoryCache, EventEngine, WowQuestAPI wrapper, provider system (Questie, QuestWeaver, Null)
