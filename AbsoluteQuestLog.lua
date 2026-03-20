@@ -23,6 +23,55 @@ AQL.DBG   = "|cFFFFD200"   -- gold (colorblind-safe, distinct from errors and ch
 -- AQL.provider     set by Core/EventEngine.lua at PLAYER_LOGIN
 
 ------------------------------------------------------------------------
+-- Enumeration Constants
+-- Public — consumers reference AQL.ChainStatus, AQL.Provider, etc.
+-- String values are unchanged; these tables are the canonical reference.
+-- Tables are mutable by convention only (no __newindex guard).
+------------------------------------------------------------------------
+
+AQL.ChainStatus = {
+    Known     = "known",
+    NotAChain = "not_a_chain",
+    Unknown   = "unknown",
+}
+
+AQL.StepStatus = {
+    Completed   = "completed",
+    Active      = "active",
+    Finished    = "finished",
+    Failed      = "failed",
+    Available   = "available",
+    Unavailable = "unavailable",
+    Unknown     = "unknown",
+}
+
+AQL.Provider = {
+    Questie     = "Questie",
+    QuestWeaver = "QuestWeaver",
+    None        = "none",
+}
+
+AQL.QuestType = {
+    Normal  = "normal",
+    Elite   = "elite",
+    Dungeon = "dungeon",
+    Raid    = "raid",
+    Daily   = "daily",
+    PvP     = "pvp",
+    Escort  = "escort",
+}
+
+AQL.Faction = {
+    Alliance = "Alliance",
+    Horde    = "Horde",
+}
+
+AQL.FailReason = {
+    Timeout    = "timeout",
+    EscortDied = "escort_died",
+}
+
+------------------------------------------------------------------------
 -- Public API: Quest State Queries
 ------------------------------------------------------------------------
 
@@ -115,7 +164,7 @@ function AQL:GetChainInfo(questID)
     if q and q.chainInfo then
         return q.chainInfo
     end
-    return { knownStatus = "unknown" }
+    return { knownStatus = AQL.ChainStatus.Unknown }
 end
 
 function AQL:GetChainStep(questID)
@@ -159,13 +208,13 @@ function AQL:GetQuestInfo(questID)
         if ok and info then basicInfo = info end
     end
 
-    local chainInfo = { knownStatus = "unknown" }
+    local chainInfo = { knownStatus = AQL.ChainStatus.Unknown }
     if provider.GetChainInfo then
         local ok, ci = pcall(provider.GetChainInfo, provider, questID)
         if ok and ci then chainInfo = ci end
     end
 
-    if not basicInfo and chainInfo.knownStatus == "unknown" then return nil end
+    if not basicInfo and chainInfo.knownStatus == AQL.ChainStatus.Unknown then return nil end
 
     return {
         questID       = questID,
