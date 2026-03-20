@@ -119,10 +119,10 @@ end
 
 function QuestieProvider:GetChainInfo(questID)
     local db = getDB()
-    if not db then return { knownStatus = "unknown" } end
+    if not db then return { knownStatus = AQL.ChainStatus.Unknown } end
     local chain = buildChain(questID)
     if not chain then
-        return { knownStatus = "not_a_chain" }
+        return { knownStatus = AQL.ChainStatus.NotAChain }
     end
 
     local steps = chain.steps
@@ -142,15 +142,15 @@ function QuestieProvider:GetChainInfo(questID)
     for _, s in ipairs(steps) do
         local sid = s.questID
         if AQL.HistoryCache and AQL.HistoryCache:HasCompleted(sid) then
-            s.status = "completed"
+            s.status = AQL.StepStatus.Completed
         elseif AQL.QuestCache and AQL.QuestCache:Get(sid) then
             local q = AQL.QuestCache:Get(sid)
             if q.isFailed then
-                s.status = "failed"
+                s.status = AQL.StepStatus.Failed
             elseif q.isComplete then
-                s.status = "finished"
+                s.status = AQL.StepStatus.Finished
             else
-                s.status = "active"
+                s.status = AQL.StepStatus.Active
             end
         else
             -- Quest not active and not in completion history.
@@ -168,13 +168,13 @@ function QuestieProvider:GetChainInfo(questID)
             -- Use `questID` (the parameter of GetChainInfo) not `startQuestID`
             -- (which is local to buildChain and out of scope here).
             if not stepQuestData and sid ~= questID then
-                s.status = "unknown"
+                s.status = AQL.StepStatus.Unknown
             elseif prevIdx and prevIdx > 1 then
                 local prev = steps[prevIdx - 1]
                 local prevCompleted = AQL.HistoryCache and AQL.HistoryCache:HasCompleted(prev.questID)
-                s.status = prevCompleted and "available" or "unavailable"
+                s.status = prevCompleted and AQL.StepStatus.Available or AQL.StepStatus.Unavailable
             else
-                s.status = "available"  -- first step, not yet started
+                s.status = AQL.StepStatus.Available  -- first step, not yet started
             end
         end
 
@@ -185,12 +185,12 @@ function QuestieProvider:GetChainInfo(questID)
     end
 
     return {
-        knownStatus = "known",
+        knownStatus = AQL.ChainStatus.Known,
         chainID     = chainID,
         step        = stepNum,
         length      = length,
         steps       = steps,
-        provider    = "Questie",
+        provider    = AQL.Provider.Questie,
     }
 end
 
@@ -227,17 +227,17 @@ function QuestieProvider:GetQuestType(questID)
 
     -- questTagIds field stores the quest's tag (from QuestieDB questKeys).
     local tag = quest.questTagId
-    if tag == TAG_ELITE   then return "elite"   end
-    if tag == TAG_RAID    then return "raid"    end
-    if tag == TAG_DUNGEON then return "dungeon" end
+    if tag == TAG_ELITE   then return AQL.QuestType.Elite   end
+    if tag == TAG_RAID    then return AQL.QuestType.Raid    end
+    if tag == TAG_DUNGEON then return AQL.QuestType.Dungeon end
 
     -- Daily detection: check zoneOrSort or questFlags depending on Questie version.
     -- Questie v11 uses a flags bitmask; bit 1 (value 1) = DAILY in Classic.
     if quest.questFlags and bit.band(quest.questFlags, 1) == 1 then
-        return "daily"
+        return AQL.QuestType.Daily
     end
 
-    return "normal"
+    return AQL.QuestType.Normal
 end
 
 function QuestieProvider:GetQuestFaction(questID)
@@ -246,8 +246,8 @@ function QuestieProvider:GetQuestFaction(questID)
     local quest = db.GetQuest(questID)
     if not quest then return nil end
     -- Questie stores faction as a numeric: 0 = any, 1 = Horde, 2 = Alliance
-    if quest.requiredFaction == 1 then return "Horde"    end
-    if quest.requiredFaction == 2 then return "Alliance" end
+    if quest.requiredFaction == 1 then return AQL.Faction.Horde    end
+    if quest.requiredFaction == 2 then return AQL.Faction.Alliance end
     return nil
 end
 
