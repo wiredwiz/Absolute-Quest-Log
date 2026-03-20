@@ -185,7 +185,7 @@ end
 -- Three-tier resolution. Contrast with AQL:GetQuest which is cache-only.
 --   Tier 1: AQL QuestCache (full normalized snapshot)
 --   Tier 2: WowQuestAPI log scan → { questID, title, level, suggestedGroup, isComplete, zone }
---           or title-only { questID, title } when not in log
+--           or title-only { questID, title } when not in log; augmented from Tier 3 when zone absent
 --   Tier 3: AQL.provider:GetQuestBasicInfo → { title, questLevel, requiredLevel, zone }
 --           merged with AQL.provider:GetChainInfo → chainInfo (chainID, step, length)
 -- Returns nil only when all three tiers have no data.
@@ -196,7 +196,32 @@ function AQL:GetQuestInfo(questID)
 
     -- Tier 2: WoW log scan / title fallback.
     local result = WowQuestAPI.GetQuestInfo(questID)
-    if result then return result end
+    if result then
+        -- Augment with Tier 3 if zone is absent (title-only path: quest not in
+        -- player's log). Zone is nil only in that path; the log-scan path always
+        -- sets zone from the zone-header row. All provider calls are pcall-guarded.
+        if not result.zone then
+            local provider = self.provider
+            if provider then
+                if provider.GetQuestBasicInfo then
+                    local ok, basicInfo = pcall(provider.GetQuestBasicInfo, provider, questID)
+                    if ok and basicInfo then
+                        result.zone          = result.zone          or basicInfo.zone
+                        result.level         = result.level         or basicInfo.questLevel
+                        result.requiredLevel = result.requiredLevel or basicInfo.requiredLevel
+                        result.title         = result.title         or basicInfo.title
+                    end
+                end
+                if provider.GetChainInfo then
+                    local ok, ci = pcall(provider.GetChainInfo, provider, questID)
+                    if ok and ci then
+                        result.chainInfo = result.chainInfo or ci
+                    end
+                end
+            end
+        end
+        return result
+    end
 
     -- Tier 3: provider (Questie / QuestWeaver).
     local provider = self.provider
