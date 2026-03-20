@@ -18,15 +18,15 @@ end
 
 function QuestWeaverProvider:GetChainInfo(questID)
     local qw = _G["QuestWeaver"]
-    if not qw then return { knownStatus = "unknown" } end
+    if not qw then return { knownStatus = AQL.ChainStatus.Unknown } end
 
     local quest = qw.Quests[questID]
-    if not quest then return { knownStatus = "unknown" } end
+    if not quest then return { knownStatus = AQL.ChainStatus.Unknown } end
 
     -- quest_series is an ordered array of questIDs in this chain.
     local series = quest.quest_series
     if not series or #series == 0 then
-        return { knownStatus = "not_a_chain" }
+        return { knownStatus = AQL.ChainStatus.NotAChain }
     end
 
     local chainID = series[1]  -- first questID in the series
@@ -39,26 +39,26 @@ function QuestWeaverProvider:GetChainInfo(questID)
 
         local status
         if AQL.HistoryCache and AQL.HistoryCache:HasCompleted(sid) then
-            status = "completed"
+            status = AQL.StepStatus.Completed
         elseif AQL.QuestCache and AQL.QuestCache:Get(sid) then
             local q = AQL.QuestCache:Get(sid)
             if q.isFailed then
-                status = "failed"
+                status = AQL.StepStatus.Failed
             elseif q.isComplete then
-                status = "finished"
+                status = AQL.StepStatus.Finished
             else
-                status = "active"
+                status = AQL.StepStatus.Active
             end
         else
             -- "unknown": sid is in quest_series but absent from qw.Quests —
             -- the chain structure is known but this step's data is missing.
             if not qw.Quests[sid] then
-                status = "unknown"
+                status = AQL.StepStatus.Unknown
             elseif i == 1 then
-                status = "available"
+                status = AQL.StepStatus.Available
             else
                 local prev = steps[i - 1]
-                status = (prev and prev.status == "completed") and "available" or "unavailable"
+                status = (prev and prev.status == AQL.StepStatus.Completed) and AQL.StepStatus.Available or AQL.StepStatus.Unavailable
             end
         end
 
@@ -72,12 +72,12 @@ function QuestWeaverProvider:GetChainInfo(questID)
     end
 
     return {
-        knownStatus = "known",
+        knownStatus = AQL.ChainStatus.Known,
         chainID     = chainID,
         step        = stepNum,
         length      = length,
         steps       = steps,
-        provider    = "QuestWeaver",
+        provider    = AQL.Provider.QuestWeaver,
     }
 end
 
@@ -87,7 +87,7 @@ function QuestWeaverProvider:GetQuestType(questID)
     local quest = qw.Quests and qw.Quests[questID]
     if not quest then return nil end
     -- QuestWeaver stores quest type in quest.quest_type (string) when present.
-    return quest.quest_type or "normal"
+    return quest.quest_type or AQL.QuestType.Normal
 end
 
 function QuestWeaverProvider:GetQuestFaction(questID)
