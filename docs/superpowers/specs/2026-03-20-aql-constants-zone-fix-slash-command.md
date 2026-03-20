@@ -84,7 +84,7 @@ AQL.FailReason = {
 
 ### Files Changed
 
-All raw string literals in AQL source files that correspond to these constants are replaced with the constant references. The listed replacements are all known occurrences; the implementer should verify completeness by grepping each file for the raw string values after making changes. Consumer addon SocialQuest is **not** updated as part of this work — the constants are immediately available to it after this change, but adopting them is separate work.
+All raw string literals in AQL source files that correspond to these constants are replaced with the constant references, and SocialQuest is updated to use them where it currently compares against AQL-owned strings. The listed replacements are all known occurrences; the implementer should verify completeness by grepping each file for the raw string values after making changes.
 
 **`AbsoluteQuestLog.lua`** — Add the six tables above.
 
@@ -115,6 +115,18 @@ All raw string literals in AQL source files that correspond to these constants a
 - `return quest.quest_type or "normal"` — `quest.quest_type` is a QuestWeaver-native string that passes through unfiltered; replace the `"normal"` fallback literal only: `return quest.quest_type or AQL.QuestType.Normal`. QuestWeaver may return type strings not in `AQL.QuestType` (e.g. a QuestWeaver-specific value). This is intentional — provider-native strings pass through for compatibility. Consumers comparing against `AQL.QuestType.*` will not match unmapped values; this is acceptable and unchanged from the current behavior where any string can appear in `QuestInfo.type`.
 
 **`Providers/NullProvider.lua`** — No string constants used; no changes.
+
+**`D:\Projects\Wow Addons\Social-Quest` (multiple files)** — SocialQuest uses `knownStatus == "known"` in 12 places across 6 files, and constructs `{ knownStatus = "unknown" }` directly in one place. These are the only AQL-owned string values SocialQuest references; all other strings in SocialQuest (`"finished"`, `"completed"`, `"failed"`, etc.) are SocialQuest-internal and are not AQL constants. Replace:
+
+- `Core/Announcements.lua:46` — `chainInfo.knownStatus ~= "known"` → `~= AQL.ChainStatus.Known`
+- `UI/RowFactory.lua:222` — `ci.knownStatus == "known"` → `== AQL.ChainStatus.Known`
+- `UI/TabUtils.lua:37,41` — two occurrences of `knownStatus == "known"` → `AQL.ChainStatus.Known`
+- `UI/Tabs/MineTab.lua:60,77` — two occurrences → `AQL.ChainStatus.Known`
+- `UI/Tabs/PartyTab.lua:32,33,74,75,160` — five occurrences → `AQL.ChainStatus.Known`
+- `UI/Tabs/SharedTab.lua:31` — `ci.knownStatus == "known"` → `AQL.ChainStatus.Known`
+- `UI/Tabs/SharedTab.lua:198` — `{ knownStatus = "unknown" }` → `{ knownStatus = AQL.ChainStatus.Unknown }`
+
+SocialQuest accesses `AQL` via its existing `LibStub("AbsoluteQuestLog-1.0")` reference. The constant tables are available as soon as AQL loads, which happens before SocialQuest files run (AQL is a listed dependency in SocialQuest's TOC).
 
 ---
 
@@ -257,7 +269,6 @@ end
 
 ## Explicitly Out of Scope
 
-- Updating SocialQuest to use the new AQL constants (separate work)
 - Adding new `/aql` subcommands beyond `debug`
 - Persisting debug mode across sessions
 - Any changes to how QuestCache, EventEngine, or providers work beyond the string constant substitution
