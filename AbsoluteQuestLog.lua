@@ -329,17 +329,24 @@ SlashCmdList["ABSOLUTEQUESTLOG"] = function(input)
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[AQL] Error: library not loaded|r")
         return
     end
-    local cmd = (input or ""):match("^%s*(.-)%s*$"):lower()
-    if cmd == "on" or cmd == "normal" then
-        aql.debug = "normal"
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: normal" .. aql.RESET)
-    elseif cmd == "verbose" then
-        aql.debug = "verbose"
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: verbose" .. aql.RESET)
-    elseif cmd == "off" then
-        aql.debug = nil
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: off" .. aql.RESET)
+    local sub, arg = (input or ""):match("^%s*(%S+)%s*(.-)%s*$")
+    sub = sub and sub:lower() or ""
+    arg = arg and arg:lower() or ""
+
+    if sub == "debug" then
+        if arg == "on" or arg == "normal" then
+            aql.debug = "normal"
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: normal" .. aql.RESET)
+        elseif arg == "verbose" then
+            aql.debug = "verbose"
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: verbose" .. aql.RESET)
+        elseif arg == "off" then
+            aql.debug = nil
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: off" .. aql.RESET)
+        else
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off]" .. aql.RESET)
+        end
     else
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql [on|normal|verbose|off]" .. aql.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off]" .. aql.RESET)
     end
 end
