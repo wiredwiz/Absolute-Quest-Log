@@ -23,6 +23,55 @@ AQL.DBG   = "|cFFFFD200"   -- gold (colorblind-safe, distinct from errors and ch
 -- AQL.provider     set by Core/EventEngine.lua at PLAYER_LOGIN
 
 ------------------------------------------------------------------------
+-- Enumeration Constants
+-- Public — consumers reference AQL.ChainStatus, AQL.Provider, etc.
+-- String values are unchanged; these tables are the canonical reference.
+-- Tables are mutable by convention only (no __newindex guard).
+------------------------------------------------------------------------
+
+AQL.ChainStatus = {
+    Known     = "known",
+    NotAChain = "not_a_chain",
+    Unknown   = "unknown",
+}
+
+AQL.StepStatus = {
+    Completed   = "completed",
+    Active      = "active",
+    Finished    = "finished",
+    Failed      = "failed",
+    Available   = "available",
+    Unavailable = "unavailable",
+    Unknown     = "unknown",
+}
+
+AQL.Provider = {
+    Questie     = "Questie",
+    QuestWeaver = "QuestWeaver",
+    None        = "none",
+}
+
+AQL.QuestType = {
+    Normal  = "normal",
+    Elite   = "elite",
+    Dungeon = "dungeon",
+    Raid    = "raid",
+    Daily   = "daily",
+    PvP     = "pvp",
+    Escort  = "escort",
+}
+
+AQL.Faction = {
+    Alliance = "Alliance",
+    Horde    = "Horde",
+}
+
+AQL.FailReason = {
+    Timeout    = "timeout",
+    EscortDied = "escort_died",
+}
+
+------------------------------------------------------------------------
 -- Public API: Quest State Queries
 ------------------------------------------------------------------------
 
@@ -115,7 +164,7 @@ function AQL:GetChainInfo(questID)
     if q and q.chainInfo then
         return q.chainInfo
     end
-    return { knownStatus = "unknown" }
+    return { knownStatus = AQL.ChainStatus.Unknown }
 end
 
 function AQL:GetChainStep(questID)
@@ -136,7 +185,7 @@ end
 -- Three-tier resolution. Contrast with AQL:GetQuest which is cache-only.
 --   Tier 1: AQL QuestCache (full normalized snapshot)
 --   Tier 2: WowQuestAPI log scan → { questID, title, level, suggestedGroup, isComplete, zone }
---           or title-only { questID, title } when not in log
+--           or title-only { questID, title } when not in log; augmented from Tier 3 when zone absent
 --   Tier 3: AQL.provider:GetQuestBasicInfo → { title, questLevel, requiredLevel, zone }
 --           merged with AQL.provider:GetChainInfo → chainInfo (chainID, step, length)
 -- Returns nil only when all three tiers have no data.
@@ -147,7 +196,32 @@ function AQL:GetQuestInfo(questID)
 
     -- Tier 2: WoW log scan / title fallback.
     local result = WowQuestAPI.GetQuestInfo(questID)
-    if result then return result end
+    if result then
+        -- Augment with Tier 3 if zone is absent (title-only path: quest not in
+        -- player's log). Zone is nil only in that path; the log-scan path always
+        -- sets zone from the zone-header row. All provider calls are pcall-guarded.
+        if not result.zone then
+            local provider = self.provider
+            if provider then
+                if provider.GetQuestBasicInfo then
+                    local ok, basicInfo = pcall(provider.GetQuestBasicInfo, provider, questID)
+                    if ok and basicInfo then
+                        result.zone          = result.zone          or basicInfo.zone
+                        result.level         = result.level         or basicInfo.questLevel
+                        result.requiredLevel = result.requiredLevel or basicInfo.requiredLevel
+                        result.title         = result.title         or basicInfo.title
+                    end
+                end
+                if provider.GetChainInfo then
+                    local ok, ci = pcall(provider.GetChainInfo, provider, questID)
+                    if ok and ci then
+                        result.chainInfo = result.chainInfo or ci
+                    end
+                end
+            end
+        end
+        return result
+    end
 
     -- Tier 3: provider (Questie / QuestWeaver).
     local provider = self.provider
@@ -159,13 +233,13 @@ function AQL:GetQuestInfo(questID)
         if ok and info then basicInfo = info end
     end
 
-    local chainInfo = { knownStatus = "unknown" }
+    local chainInfo = { knownStatus = AQL.ChainStatus.Unknown }
     if provider.GetChainInfo then
         local ok, ci = pcall(provider.GetChainInfo, provider, questID)
         if ok and ci then chainInfo = ci end
     end
 
-    if not basicInfo and chainInfo.knownStatus == "unknown" then return nil end
+    if not basicInfo and chainInfo.knownStatus == AQL.ChainStatus.Unknown then return nil end
 
     return {
         questID       = questID,
@@ -255,17 +329,24 @@ SlashCmdList["ABSOLUTEQUESTLOG"] = function(input)
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[AQL] Error: library not loaded|r")
         return
     end
-    local cmd = (input or ""):match("^%s*(.-)%s*$"):lower()
-    if cmd == "on" or cmd == "normal" then
-        aql.debug = "normal"
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: normal" .. aql.RESET)
-    elseif cmd == "verbose" then
-        aql.debug = "verbose"
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: verbose" .. aql.RESET)
-    elseif cmd == "off" then
-        aql.debug = nil
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: off" .. aql.RESET)
+    local sub, arg = (input or ""):match("^%s*(%S+)%s*(.-)%s*$")
+    sub = sub and sub:lower() or ""
+    arg = arg and arg:lower() or ""
+
+    if sub == "debug" then
+        if arg == "on" or arg == "normal" then
+            aql.debug = "normal"
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: normal" .. aql.RESET)
+        elseif arg == "verbose" then
+            aql.debug = "verbose"
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: verbose" .. aql.RESET)
+        elseif arg == "off" then
+            aql.debug = nil
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Debug mode: off" .. aql.RESET)
+        else
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off]" .. aql.RESET)
+        end
     else
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql [on|normal|verbose|off]" .. aql.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off]" .. aql.RESET)
     end
 end

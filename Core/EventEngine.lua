@@ -14,7 +14,7 @@ if not AQL then return end
 local EventEngine = {}
 AQL.EventEngine = EventEngine
 
--- EventEngine writes reason strings here ("timeout", "escort_died", "unknown");
+-- EventEngine writes reason strings here (AQL.FailReason.Timeout, AQL.FailReason.EscortDied, or nil);
 -- QuestCache reads during _buildEntry to populate QuestInfo.failReason.
 -- (QuestCache.failedSet is initialized in QuestCache.lua; we just write to it.)
 
@@ -176,11 +176,11 @@ local function runDiff(oldCache)
                     if oldInfo.timerSeconds and oldInfo.snapshotTime then
                         local remaining = oldInfo.timerSeconds - (GetTime() - oldInfo.snapshotTime)
                         if remaining <= 1 then
-                            failReason = "timeout"
+                            failReason = AQL.FailReason.Timeout
                         end
                     end
-                    if not failReason and oldInfo.type == "escort" then
-                        failReason = "escort_died"
+                    if not failReason and oldInfo.type == AQL.QuestType.Escort then
+                        failReason = AQL.FailReason.EscortDied
                     end
 
                     if failReason then

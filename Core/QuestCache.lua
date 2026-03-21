@@ -175,7 +175,7 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     -- AQL.provider may be nil during the very first Rebuild before EventEngine
     -- has run provider selection. Nil-guard here; the next rebuild after
     -- PLAYER_LOGIN will have a provider set.
-    local chainInfo = { knownStatus = "unknown" }
+    local chainInfo = { knownStatus = AQL.ChainStatus.Unknown }
     local questType, questFaction
     local provider = AQL.provider
     if provider then
