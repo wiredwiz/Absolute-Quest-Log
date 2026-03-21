@@ -16,6 +16,15 @@
 
 ## Architecture
 
+### Bundled Libraries (`Libs\`)
+
+| File | Purpose |
+|---|---|
+| `Libs\LibStub\LibStub.lua` | Library bootstrapper. Self-versioning — safe to bundle; deduplicates automatically if another addon loads a newer version. |
+| `Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua` | Callback registration and firing. Registered through LibStub; same deduplication guarantee. |
+
+AQL has no external addon dependencies. The `Libs\` copies are the sole requirement for standalone use.
+
 ### Entry Point
 
 `AbsoluteQuestLog.lua` — Registers the library with LibStub (`"AbsoluteQuestLog-1.0"`, minor=1). Sets up CallbackHandler (`AQL.callbacks`). Declares sub-module slots (`QuestCache`, `HistoryCache`, `EventEngine`, `provider`) as nil — populated by subsequent files per TOC load order. Contains all public API methods.
@@ -222,6 +231,9 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ---
 
 ## Version History
+
+### Version 2.1.1 (March 2026)
+- Bundled LibStub and CallbackHandler-1.0 inside `Libs\`. Removed `## Dependencies: Ace3` from the toc. AQL is now fully self-contained with zero external dependencies. Both libraries are self-versioning via LibStub and deduplicate safely if Ace3 or another addon loads the same or newer versions.
 
 ### Version 2.1.0 (March 2026)
 - Added `AQL.ChainStatus`, `AQL.StepStatus`, `AQL.Provider`, `AQL.QuestType`, `AQL.Faction`, `AQL.FailReason` enumeration constant tables; all raw string literals in AQL source replaced with these constants
