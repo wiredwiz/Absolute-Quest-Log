@@ -2,10 +2,12 @@
 ## Title: Lib: AbsoluteQuestLog
 ## Notes: A rich quest data library for WoW Burning Crusade Anniversary.
 ## Author: Thad Ryker
-## Version: 2.1.0
+## Version: 2.1.1
 ## X-Category: Library
-## Dependencies: Ace3
+## X-Embeds: LibStub, CallbackHandler-1.0
 
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
 AbsoluteQuestLog.lua
 Core\WowQuestAPI.lua
 Core\EventEngine.lua
