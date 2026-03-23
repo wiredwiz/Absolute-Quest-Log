@@ -6,7 +6,10 @@ local MAJOR, MINOR = "AbsoluteQuestLog-1.0", 1
 local AQL, oldVersion = LibStub:NewLibrary(MAJOR, MINOR)
 if not AQL then return end  -- Already loaded at equal or higher version.
 
--- CallbackHandler provides AQL:RegisterCallback / AQL:UnregisterCallback.
+-- CallbackHandler injects AQL:RegisterCallback and AQL:UnregisterCallback.
+-- Usage: AQL:RegisterCallback("AQL_QUEST_ACCEPTED", handler, target)
+--        AQL:UnregisterCallback("AQL_QUEST_ACCEPTED", handler)
+-- See CLAUDE.md Callbacks Reference for the full event list.
 AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 
 -- Chat color escape sequences for debug/error messages.
@@ -226,9 +229,6 @@ end
 function AQL:GetChainLength(questID)
     return self:GetChainInfo(questID).length
 end
-
--- AQL:RegisterCallback(event, handler, target) -- from CallbackHandler
--- AQL:UnregisterCallback(event, handler)        -- from CallbackHandler
 
 ------------------------------------------------------------------------
 -- Quest Resolution
