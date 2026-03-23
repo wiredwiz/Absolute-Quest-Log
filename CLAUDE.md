@@ -308,6 +308,11 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.2.1 (March 2026)
+- Added `AQL.Event` enumeration constant table for all 12 AQL callback event strings (`QuestAccepted`, `QuestAbandoned`, `QuestCompleted`, `QuestFinished`, `QuestFailed`, `QuestTracked`, `QuestUntracked`, `ObjectiveProgressed`, `ObjectiveCompleted`, `ObjectiveRegressed`, `ObjectiveFailed`, `UnitQuestLogChanged`); all raw `"AQL_*"` string literals in `EventEngine.lua` replaced with constants
+- Replaced `GetQuestLogZoneNames()` (returned array of strings) with `GetQuestLogZones()` returning `{name, isCollapsed}` entries per zone header, enabling save/restore of collapsed state around bulk operations
+- Added doc comments to all previously undocumented Group 1 public API methods
+
 ### Version 2.2.0 (March 2026)
 - Added Quest Log Frame & Navigation wrappers to `WowQuestAPI.lua` (`GetNumQuestLogEntries`, `GetQuestLogTitle`, `GetQuestLogSelection`, `SelectQuestLogEntry`, `GetQuestLogPushable`, `QuestLog_SetSelection`, `QuestLog_Update`, `ExpandQuestHeader`, `CollapseQuestHeader`, `ShowQuestLog`, `HideQuestLog`, `IsQuestLogShown`, `GetQuestDifficultyColor`, `GetPlayerLevel`)
 - Added Group 2 Quest Log APIs to AQL public interface: 11 thin wrappers, 13 compound ByIndex methods, 4 compound ById methods
