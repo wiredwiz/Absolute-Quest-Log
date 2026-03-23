@@ -80,18 +80,27 @@ AQL.FailReason = {
 -- Quest State
 ------------------------------------------------------------------------
 
+-- GetQuest(questID) → QuestInfo or nil
+-- Returns the cached QuestInfo for questID, or nil if the quest is not in
+-- the player's active log. Cache-only — does not scan the WoW log or
+-- provider. Use GetQuestInfo for three-tier resolution.
 function AQL:GetQuest(questID)
     return self.QuestCache and self.QuestCache:Get(questID) or nil
 end
 
+-- GetAllQuests() → {[questID]=QuestInfo}
+-- Returns the full active quest cache snapshot.
+-- Keys are questIDs; values are QuestInfo tables.
 function AQL:GetAllQuests()
     return self.QuestCache and self.QuestCache:GetAll() or {}
 end
 
+-- GetQuestsByZone(zone) → {[questID]=QuestInfo}
+-- Returns all active quests whose zone field matches zone.
+-- zone is the English canonical zone name as stored by the active chain
+-- provider (e.g. "Blasted Lands"). On non-English clients, use
+-- GetAllQuests() and filter by questID instead.
 function AQL:GetQuestsByZone(zone)
-    -- zone is the English canonical zone name as stored by the active chain
-    -- provider (e.g. "Blasted Lands"). On non-English clients, use
-    -- GetAllQuests() and filter by questID instead.
     local result = {}
     for questID, info in pairs(self:GetAllQuests()) do
         if info.zone == zone then
@@ -101,10 +110,15 @@ function AQL:GetQuestsByZone(zone)
     return result
 end
 
+-- IsQuestActive(questID) → bool
+-- Returns true if questID is currently in the player's active quest log.
 function AQL:IsQuestActive(questID)
     return self.QuestCache ~= nil and self.QuestCache:Get(questID) ~= nil
 end
 
+-- IsQuestFinished(questID) → bool
+-- Returns true if questID is in the log and all objectives are met
+-- (isComplete = true) but the quest has not yet been turned in.
 function AQL:IsQuestFinished(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     return q ~= nil and q.isComplete == true
@@ -114,6 +128,9 @@ end
 -- Quest History
 ------------------------------------------------------------------------
 
+-- HasCompletedQuest(questID) → bool
+-- Returns true if questID is in the character's completion history.
+-- Checks HistoryCache first; falls back to WowQuestAPI.IsQuestFlaggedCompleted.
 function AQL:HasCompletedQuest(questID)
     if self.HistoryCache and self.HistoryCache:HasCompleted(questID) then
         return true
@@ -121,19 +138,32 @@ function AQL:HasCompletedQuest(questID)
     return WowQuestAPI.IsQuestFlaggedCompleted(questID)
 end
 
+-- GetCompletedQuests() → {[questID]=true}
+-- Returns the full set of quests completed by this character.
 function AQL:GetCompletedQuests()
     return self.HistoryCache and self.HistoryCache:GetAll() or {}
 end
 
+-- GetCompletedQuestCount() → number
+-- Returns the count of quests completed by this character.
 function AQL:GetCompletedQuestCount()
     return self.HistoryCache and self.HistoryCache:GetCount() or 0
 end
 
+-- GetQuestType(questID) → string or nil
+-- Returns the quest type from the cache (e.g. AQL.QuestType.Elite), or nil
+-- if unknown. Cache-only; returns nil if the quest is not in the active log.
 function AQL:GetQuestType(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     return q and q.type or nil
 end
 
+-- GetQuestLink(questID) → hyperlink string or nil
+-- Returns a WoW quest hyperlink for questID.
+-- Tier 1: live cache link (pre-built by QuestCache._buildEntry with fallback
+-- construction, so always non-nil for active quests).
+-- Tier 2/3: constructs a link from GetQuestInfo when the quest is not cached.
+-- Returns nil only when no title can be resolved (all three tiers exhausted).
 function AQL:GetQuestLink(questID)
     -- Tier 1: live cache (always non-nil for active quests; see _buildEntry fallback).
     local q = self.QuestCache and self.QuestCache:Get(questID)
@@ -154,11 +184,17 @@ end
 -- Objectives
 ------------------------------------------------------------------------
 
+-- GetObjectives(questID) → array or nil
+-- Returns the objectives array for questID from the cache, or nil if the
+-- quest is not in the active log.
+-- Each entry: { index, text, name, type, numFulfilled, numRequired, isFinished, isFailed }.
 function AQL:GetObjectives(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     return q and q.objectives or nil
 end
 
+-- GetObjective(questID, index) → table or nil
+-- Returns the single objective at index for questID, or nil if not found.
 function AQL:GetObjective(questID, index)
     local objs = self:GetObjectives(questID)
     return objs and objs[index] or nil
@@ -168,6 +204,9 @@ end
 -- Chain Info
 ------------------------------------------------------------------------
 
+-- GetChainInfo(questID) → ChainInfo
+-- Returns chain info from the cache. Falls back to
+-- { knownStatus = AQL.ChainStatus.Unknown } when not found. Never returns nil.
 function AQL:GetChainInfo(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     if q and q.chainInfo then
@@ -176,10 +215,14 @@ function AQL:GetChainInfo(questID)
     return { knownStatus = AQL.ChainStatus.Unknown }
 end
 
+-- GetChainStep(questID) → number or nil
+-- Returns the 1-based step position of questID in its chain, or nil if unknown.
 function AQL:GetChainStep(questID)
     return self:GetChainInfo(questID).step
 end
 
+-- GetChainLength(questID) → number or nil
+-- Returns the total number of quests in questID's chain, or nil if unknown.
 function AQL:GetChainLength(questID)
     return self:GetChainInfo(questID).length
 end
