@@ -621,6 +621,81 @@ function AQL:CollapseAllQuestLogHeaders()
     end
 end
 
+-- Local helper: finds the logIndex of a zone header by name.
+-- Returns logIndex, isCollapsed  — or nil, nil if not found.
+local function findZoneHeader(zoneName)
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local title, _, _, isHeader, isCollapsed = WowQuestAPI.GetQuestLogTitle(i)
+        if title and isHeader and title == zoneName then
+            return i, isCollapsed == true
+        end
+    end
+    return nil, nil
+end
+
+-- ExpandQuestLogZoneByName(zoneName)
+-- Finds the zone header matching zoneName and expands it.
+-- No-op with a normal-level debug message if zoneName is not found.
+function AQL:ExpandQuestLogZoneByName(zoneName)
+    local logIndex = findZoneHeader(zoneName)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ExpandQuestLogZoneByName: zone \"" .. tostring(zoneName) .. "\" not found in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.ExpandQuestHeader(logIndex)
+end
+
+-- CollapseQuestLogZoneByName(zoneName)
+-- Finds the zone header matching zoneName and collapses it.
+-- No-op with a normal-level debug message if zoneName is not found.
+function AQL:CollapseQuestLogZoneByName(zoneName)
+    local logIndex = findZoneHeader(zoneName)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] CollapseQuestLogZoneByName: zone \"" .. tostring(zoneName) .. "\" not found in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.CollapseQuestHeader(logIndex)
+end
+
+-- ToggleQuestLogZoneByName(zoneName)
+-- Finds the zone header matching zoneName; expands if collapsed, collapses
+-- if expanded.
+-- No-op with a normal-level debug message if zoneName is not found.
+function AQL:ToggleQuestLogZoneByName(zoneName)
+    local logIndex, isCollapsed = findZoneHeader(zoneName)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ToggleQuestLogZoneByName: zone \"" .. tostring(zoneName) .. "\" not found in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    if isCollapsed then
+        WowQuestAPI.ExpandQuestHeader(logIndex)
+    else
+        WowQuestAPI.CollapseQuestHeader(logIndex)
+    end
+end
+
+-- IsQuestLogZoneCollapsed(zoneName) → bool or nil
+-- Returns true if the zone header matching zoneName is collapsed,
+-- false if expanded, nil if not found.
+-- Emits a normal-level debug message when zoneName is not found.
+function AQL:IsQuestLogZoneCollapsed(zoneName)
+    local logIndex, isCollapsed = findZoneHeader(zoneName)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] IsQuestLogZoneCollapsed: zone \"" .. tostring(zoneName) .. "\" not found in quest log — returning nil" .. self.RESET)
+        end
+        return nil
+    end
+    return isCollapsed
+end
+
 ------------------------------------------------------------------------
 -- Slash command
 ------------------------------------------------------------------------
