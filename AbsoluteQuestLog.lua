@@ -330,6 +330,88 @@ function AQL:IsUnitOnQuest(questID, unit)
 end
 
 ------------------------------------------------------------------------
+-- Player & Level
+-- Filters the active quest cache by quest level (questInfo.level —
+-- the recommended difficulty level, not requiredLevel).
+-- Absolute-level methods use strict comparisons: < and >.
+-- BetweenLevels is inclusive on both endpoints.
+-- Delta methods delegate to the absolute methods; delta should be a
+-- non-negative integer (negative values produce valid but counter-intuitive
+-- results — see individual method notes).
+-- All methods return {} (never nil) when no quests match.
+-- No debug messages — pure data queries.
+------------------------------------------------------------------------
+
+-- GetPlayerLevel() → number
+-- Returns the player's current character level.
+function AQL:GetPlayerLevel()
+    return WowQuestAPI.GetPlayerLevel()
+end
+
+-- GetQuestsInQuestLogBelowLevel(level) → {[questID]=QuestInfo}
+-- Returns all active quests where questInfo.level < level.
+function AQL:GetQuestsInQuestLogBelowLevel(level)
+    local result = {}
+    for questID, info in pairs(self:GetAllQuests()) do
+        if info.level and info.level < level then
+            result[questID] = info
+        end
+    end
+    return result
+end
+
+-- GetQuestsInQuestLogAboveLevel(level) → {[questID]=QuestInfo}
+-- Returns all active quests where questInfo.level > level.
+function AQL:GetQuestsInQuestLogAboveLevel(level)
+    local result = {}
+    for questID, info in pairs(self:GetAllQuests()) do
+        if info.level and info.level > level then
+            result[questID] = info
+        end
+    end
+    return result
+end
+
+-- GetQuestsInQuestLogBetweenLevels(minLevel, maxLevel) → {[questID]=QuestInfo}
+-- Returns all active quests where minLevel <= questInfo.level <= maxLevel.
+-- Returns {} if minLevel > maxLevel.
+function AQL:GetQuestsInQuestLogBetweenLevels(minLevel, maxLevel)
+    local result = {}
+    for questID, info in pairs(self:GetAllQuests()) do
+        if info.level and info.level >= minLevel and info.level <= maxLevel then
+            result[questID] = info
+        end
+    end
+    return result
+end
+
+-- GetQuestsInQuestLogBelowLevelDelta(delta) → {[questID]=QuestInfo}
+-- Returns quests more than delta levels below the player.
+-- e.g. delta=5 at player level 40 → quests strictly below level 35.
+-- Delegates to GetQuestsInQuestLogBelowLevel(playerLevel - delta).
+function AQL:GetQuestsInQuestLogBelowLevelDelta(delta)
+    return self:GetQuestsInQuestLogBelowLevel(WowQuestAPI.GetPlayerLevel() - delta)
+end
+
+-- GetQuestsInQuestLogAboveLevelDelta(delta) → {[questID]=QuestInfo}
+-- Returns quests more than delta levels above the player.
+-- e.g. delta=5 at player level 40 → quests strictly above level 45.
+-- Delegates to GetQuestsInQuestLogAboveLevel(playerLevel + delta).
+function AQL:GetQuestsInQuestLogAboveLevelDelta(delta)
+    return self:GetQuestsInQuestLogAboveLevel(WowQuestAPI.GetPlayerLevel() + delta)
+end
+
+-- GetQuestsInQuestLogWithinLevelRange(delta) → {[questID]=QuestInfo}
+-- Returns quests within ±delta levels of the player's current level
+-- (inclusive endpoints — the "currently worth doing" set).
+-- e.g. delta=3 at player level 40 → quests between levels 37 and 43.
+-- Delegates to GetQuestsInQuestLogBetweenLevels(playerLevel - delta, playerLevel + delta).
+function AQL:GetQuestsInQuestLogWithinLevelRange(delta)
+    local playerLevel = WowQuestAPI.GetPlayerLevel()
+    return self:GetQuestsInQuestLogBetweenLevels(playerLevel - delta, playerLevel + delta)
+end
+
+------------------------------------------------------------------------
 -- GROUP 2: QUEST LOG APIS
 -- Methods that interact with the built-in WoW quest log frame.
 --
