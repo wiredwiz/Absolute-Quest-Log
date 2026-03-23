@@ -192,7 +192,7 @@ end
 -- Returns true if the currently selected quest can be shared with party members.
 -- Only meaningful when the target quest is already selected.
 function WowQuestAPI.GetQuestLogPushable()
-    return GetQuestLogPushable() == true
+    return GetQuestLogPushable() ~= nil
 end
 
 -- QuestLog_SetSelection(logIndex)
@@ -236,7 +236,7 @@ end
 -- IsQuestLogShown() → bool
 -- Returns true if the quest log frame is currently visible.
 function WowQuestAPI.IsQuestLogShown()
-    return QuestLogFrame:IsShown() == true
+    return QuestLogFrame ~= nil and QuestLogFrame:IsShown() == true
 end
 
 -- GetQuestDifficultyColor(level) → {r, g, b}
@@ -250,6 +250,7 @@ end
 --   diff >= -5 → green  {0.25, 0.75, 0.25}  (easy)
 --   else       → grey   {0.75, 0.75, 0.75}  (trivial)
 function WowQuestAPI.GetQuestDifficultyColor(level)
+    if not level then return { r = 0.75, g = 0.75, b = 0.75 } end
     if GetQuestDifficultyColor then
         local color = GetQuestDifficultyColor(level)
         if color then
