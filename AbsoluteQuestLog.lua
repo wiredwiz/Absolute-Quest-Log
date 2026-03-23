@@ -7,9 +7,9 @@ local AQL, oldVersion = LibStub:NewLibrary(MAJOR, MINOR)
 if not AQL then return end  -- Already loaded at equal or higher version.
 
 -- CallbackHandler injects AQL:RegisterCallback and AQL:UnregisterCallback.
--- Usage: AQL:RegisterCallback("AQL_QUEST_ACCEPTED", handler, target)
---        AQL:UnregisterCallback("AQL_QUEST_ACCEPTED", handler)
--- Available events are the AQL_* constants fired by Core/EventEngine.lua.
+-- Usage: AQL:RegisterCallback(AQL.Event.QuestAccepted, handler, target)
+--        AQL:UnregisterCallback(AQL.Event.QuestAccepted, handler)
+-- Available events are the string constants in AQL.Event (defined above).
 AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 
 -- Chat color escape sequences for debug/error messages.
@@ -72,6 +72,21 @@ AQL.Faction = {
 AQL.FailReason = {
     Timeout    = "timeout",
     EscortDied = "escort_died",
+}
+
+AQL.Event = {
+    QuestAccepted        = "AQL_QUEST_ACCEPTED",
+    QuestAbandoned       = "AQL_QUEST_ABANDONED",
+    QuestCompleted       = "AQL_QUEST_COMPLETED",
+    QuestFinished        = "AQL_QUEST_FINISHED",
+    QuestFailed          = "AQL_QUEST_FAILED",
+    QuestTracked         = "AQL_QUEST_TRACKED",
+    QuestUntracked       = "AQL_QUEST_UNTRACKED",
+    ObjectiveProgressed  = "AQL_OBJECTIVE_PROGRESSED",
+    ObjectiveCompleted   = "AQL_OBJECTIVE_COMPLETED",
+    ObjectiveRegressed   = "AQL_OBJECTIVE_REGRESSED",
+    ObjectiveFailed      = "AQL_OBJECTIVE_FAILED",
+    UnitQuestLogChanged  = "AQL_UNIT_QUEST_LOG_CHANGED",
 }
 
 ------------------------------------------------------------------------
