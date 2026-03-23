@@ -9,7 +9,7 @@ if not AQL then return end  -- Already loaded at equal or higher version.
 -- CallbackHandler injects AQL:RegisterCallback and AQL:UnregisterCallback.
 -- Usage: AQL:RegisterCallback(AQL.Event.QuestAccepted, handler, target)
 --        AQL:UnregisterCallback(AQL.Event.QuestAccepted, handler)
--- Available events are the string constants in AQL.Event (defined above).
+-- Available events are the string constants in AQL.Event (defined below).
 AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 
 -- Chat color escape sequences for debug/error messages.
