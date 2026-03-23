@@ -72,7 +72,12 @@ AQL.FailReason = {
 }
 
 ------------------------------------------------------------------------
--- Public API: Quest State Queries
+-- GROUP 1: QUEST APIS
+-- Data and state queries about quests. No interaction with the quest log frame.
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+-- Quest State
 ------------------------------------------------------------------------
 
 function AQL:GetQuest(questID)
@@ -104,6 +109,10 @@ function AQL:IsQuestFinished(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     return q ~= nil and q.isComplete == true
 end
+
+------------------------------------------------------------------------
+-- Quest History
+------------------------------------------------------------------------
 
 function AQL:HasCompletedQuest(questID)
     if self.HistoryCache and self.HistoryCache:HasCompleted(questID) then
@@ -142,7 +151,7 @@ function AQL:GetQuestLink(questID)
 end
 
 ------------------------------------------------------------------------
--- Public API: Objective Queries
+-- Objectives
 ------------------------------------------------------------------------
 
 function AQL:GetObjectives(questID)
@@ -156,7 +165,7 @@ function AQL:GetObjective(questID, index)
 end
 
 ------------------------------------------------------------------------
--- Public API: Chain Queries
+-- Chain Info
 ------------------------------------------------------------------------
 
 function AQL:GetChainInfo(questID)
@@ -179,7 +188,7 @@ end
 -- AQL:UnregisterCallback(event, handler)        -- from CallbackHandler
 
 ------------------------------------------------------------------------
--- Public API: WowQuestAPI-backed Extended Queries
+-- Quest Resolution
 ------------------------------------------------------------------------
 
 -- Three-tier resolution. Contrast with AQL:GetQuest which is cache-only.
@@ -293,6 +302,10 @@ function AQL:IsQuestObjectiveText(msg)
     end
     return false
 end
+
+------------------------------------------------------------------------
+-- Quest Tracking
+------------------------------------------------------------------------
 
 -- Tracks a quest by questID.
 -- Returns false if the watch cap (MAX_WATCHABLE_QUESTS) is already reached.
