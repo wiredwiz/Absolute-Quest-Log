@@ -114,8 +114,8 @@ Methods that interact with the built-in WoW quest log frame. Divided into three 
 | `SelectQuestLogEntry(logIndex)` | Sets the selected entry; does not refresh the display. Delegates to `WowQuestAPI.SelectQuestLogEntry(logIndex)`. |
 | `IsQuestLogShareable()` | Returns true if the currently selected quest can be shared. Delegates to `WowQuestAPI.GetQuestLogPushable()`. **Result depends entirely on the current quest log selection** — if nothing is selected or the wrong entry is selected, the result is meaningless. Prefer `IsQuestIndexShareable` or `IsQuestIdShareable` when operating on a specific quest; this method exists only for callers that have already managed selection themselves. The inline doc comment must include this selection-dependency warning. This warning takes precedence over the general "comments are concise" guideline for this specific method because the selection dependency is a sharp edge that cannot be communicated by name alone. This method emits no debug message — it is a pass-through with no no-op condition to report. |
 | `SetQuestLogSelection(logIndex)` | Sets selection AND refreshes display. Calls `WowQuestAPI.QuestLog_SetSelection(logIndex)` followed immediately by `WowQuestAPI.QuestLog_Update()`. These two WowQuestAPI calls are always used together; this method calls them directly rather than through any intermediate AQL thin wrappers, because `QuestLog_SetSelection` and `QuestLog_Update` are not exposed as standalone public AQL methods. This method is the canonical two-call sequence. `SelectAndShowQuestLogEntryByIndex` delegates to it. Emits a verbose debug message on every call. |
-| `ExpandQuestLogHeader(logIndex)` | Expands a collapsed zone header row. Delegates to `WowQuestAPI.ExpandQuestHeader(logIndex)`. |
-| `CollapseQuestLogHeader(logIndex)` | Collapses a zone header row. Delegates to `WowQuestAPI.CollapseQuestHeader(logIndex)`. |
+| `ExpandQuestLogHeader(logIndex)` | Expands a collapsed zone header row. Calls `WowQuestAPI.GetQuestLogTitle(logIndex)` to verify the entry is a header; emits a normal-level debug message and returns without calling `WowQuestAPI.ExpandQuestHeader` if it is not. Emits a verbose debug message on successful expansion. |
+| `CollapseQuestLogHeader(logIndex)` | Collapses a zone header row. Calls `WowQuestAPI.GetQuestLogTitle(logIndex)` to verify the entry is a header; emits a normal-level debug message and returns without calling `WowQuestAPI.CollapseQuestHeader` if it is not. Emits a verbose debug message on successful collapse. |
 | `GetQuestDifficultyColor(level)` | Returns `{r, g, b}` for the given quest level relative to the player. Delegates to `WowQuestAPI.GetQuestDifficultyColor(level)`. |
 | `GetQuestLogIndex(questID)` | Returns the 1-based quest log index for a questID, or nil if not found. Delegates to `WowQuestAPI.GetQuestLogIndex(questID)`. **logIndex is always a position in the currently visible quest log entries** — quests under a collapsed zone header are invisible to the API and will return nil even though the quest is in the player's log. Zone header rows carry no questID and are automatically excluded from matching. |
 
@@ -125,7 +125,7 @@ For methods that need to iterate all quest log entries (`GetQuestLogEntries`, zo
 
 | Method | Behavior |
 |---|---|
-| `IsQuestIndexShareable(logIndex)` | Saves current quest log selection via `WowQuestAPI.GetQuestLogSelection()` → selects `logIndex` via `WowQuestAPI.SelectQuestLogEntry(logIndex)` → calls `WowQuestAPI.GetQuestLogPushable()` → restores previous selection via `WowQuestAPI.SelectQuestLogEntry(savedIndex)`. Returns bool. The save/restore ensures the quest log's visual state is unchanged after the call. |
+| `IsQuestIndexShareable(logIndex)` | Calls `WowQuestAPI.GetQuestLogTitle(logIndex)` to verify the entry is a quest row (not a header). If it is a header, emits a normal-level debug message and returns false. Otherwise: saves current quest log selection via `WowQuestAPI.GetQuestLogSelection()` → selects `logIndex` via `WowQuestAPI.SelectQuestLogEntry(logIndex)` → calls `WowQuestAPI.GetQuestLogPushable()` → restores previous selection via `WowQuestAPI.SelectQuestLogEntry(savedIndex)`. Returns bool. The save/restore ensures the quest log's visual state is unchanged after the call. |
 | `SelectAndShowQuestLogEntryByIndex(logIndex)` | Delegates to `AQL:SetQuestLogSelection(logIndex)`. Named explicitly for the compound context so callers in a multi-step sequence have a clearly named entry point. Emits no debug message of its own — the verbose message from `SetQuestLogSelection` is the message emitted on this path. |
 | `OpenQuestLogByIndex(logIndex)` | Calls `WowQuestAPI.ShowQuestLog()` to open the quest log frame, then calls `AQL:SelectAndShowQuestLogEntryByIndex(logIndex)`. Emits a verbose debug message before opening. |
 | `ToggleQuestLogByIndex(logIndex)` | If `WowQuestAPI.IsQuestLogShown()` is true and `WowQuestAPI.GetQuestLogSelection()` equals `logIndex` → calls `WowQuestAPI.HideQuestLog()` and emits a verbose debug message. Otherwise → delegates to `AQL:OpenQuestLogByIndex(logIndex)` with no separate message (the `OpenQuestLogByIndex` verbose message is the one emitted on the open path). |
@@ -183,10 +183,10 @@ All new public Quest Log methods emit debug messages using the existing `AQL.deb
 **Methods that emit NO debug messages:**
 
 Thin wrappers emit no messages — they are direct pass-throughs with no conditional logic to trace:
-`ShowQuestLog`, `HideQuestLog`, `IsQuestLogShown`, `GetQuestLogSelection`, `SelectQuestLogEntry`, `IsQuestLogShareable`, `ExpandQuestLogHeader`, `CollapseQuestLogHeader`, `GetQuestDifficultyColor`, `GetQuestLogIndex`.
+`ShowQuestLog`, `HideQuestLog`, `IsQuestLogShown`, `GetQuestLogSelection`, `SelectQuestLogEntry`, `IsQuestLogShareable`, `GetQuestDifficultyColor`, `GetQuestLogIndex`.
 
 Methods whose side effects are fully reversed (selection save/restore) and that have no no-op branch emit no messages:
-`IsQuestIndexShareable`.
+(none — `IsQuestIndexShareable` now validates entry type; see normal-level examples below)
 
 Pure data queries with no no-op condition emit no messages:
 `GetPlayerLevel`, `GetQuestLogEntries`, `GetQuestLogZoneNames`, all level-range filtering methods (`GetQuestsInQuestLog*`), `SelectAndShowQuestLogEntryByIndex` (delegates fully to `SetQuestLogSelection` which emits its own message).
@@ -198,6 +198,9 @@ Methods with a not-found condition emit a normal-level message (examples in the 
 
 ```
 -- Normal level (no-op or not-found conditions):
+[AQL] ExpandQuestLogHeader: logIndex=5 is not a header — no-op
+[AQL] CollapseQuestLogHeader: logIndex=5 is not a header — no-op
+[AQL] IsQuestIndexShareable: logIndex=5 is a header row — returning false
 [AQL] IsQuestIdShareable: questID=1234 not in quest log — returning false
 [AQL] SelectAndShowQuestLogEntryById: questID=1234 not in quest log — no-op
 [AQL] OpenQuestLogById: questID=1234 not in quest log — no-op
@@ -210,6 +213,8 @@ Methods with a not-found condition emit a normal-level message (examples in the 
 [AQL] GetSelectedQuestId: selected entry logIndex=2 is a zone header — returning nil
 
 -- Verbose level (successful operations):
+[AQL] ExpandQuestLogHeader: expanded header at logIndex=3
+[AQL] CollapseQuestLogHeader: collapsed header at logIndex=3
 [AQL] SetQuestLogSelection: logIndex=3
 [AQL] OpenQuestLogByIndex: showing quest log, navigating to logIndex=3
 [AQL] ToggleQuestLogByIndex: quest log is shown and logIndex=3 is selected — hiding
