@@ -9,7 +9,7 @@ if not AQL then return end  -- Already loaded at equal or higher version.
 -- CallbackHandler injects AQL:RegisterCallback and AQL:UnregisterCallback.
 -- Usage: AQL:RegisterCallback("AQL_QUEST_ACCEPTED", handler, target)
 --        AQL:UnregisterCallback("AQL_QUEST_ACCEPTED", handler)
--- See CLAUDE.md Callbacks Reference for the full event list.
+-- Available events are the AQL_* constants fired by Core/EventEngine.lua.
 AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 
 -- Chat color escape sequences for debug/error messages.
