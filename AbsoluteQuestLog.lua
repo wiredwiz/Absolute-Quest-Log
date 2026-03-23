@@ -330,6 +330,132 @@ function AQL:IsUnitOnQuest(questID, unit)
 end
 
 ------------------------------------------------------------------------
+-- GROUP 2: QUEST LOG APIS
+-- Methods that interact with the built-in WoW quest log frame.
+--
+-- logIndex note: logIndex is always a position in the *currently visible*
+-- quest log entries. Quests under collapsed zone headers are invisible to
+-- the WoW API and return nil from any logIndex-resolution method.
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+-- Quest Log APIs — Thin Wrappers
+-- One-to-one with WoW globals. No debug messages (direct pass-throughs).
+------------------------------------------------------------------------
+
+-- ShowQuestLog()
+-- Opens the quest log frame.
+function AQL:ShowQuestLog()
+    WowQuestAPI.ShowQuestLog()
+end
+
+-- HideQuestLog()
+-- Closes the quest log frame.
+function AQL:HideQuestLog()
+    WowQuestAPI.HideQuestLog()
+end
+
+-- IsQuestLogShown() → bool
+-- Returns true if the quest log frame is currently visible.
+function AQL:IsQuestLogShown()
+    return WowQuestAPI.IsQuestLogShown()
+end
+
+-- GetQuestLogSelection() → logIndex
+-- Returns the currently selected quest log entry index (0 if none selected).
+function AQL:GetQuestLogSelection()
+    return WowQuestAPI.GetQuestLogSelection()
+end
+
+-- SelectQuestLogEntry(logIndex)
+-- Sets the selected entry without refreshing the quest log display.
+-- Does not emit a debug message — use SetQuestLogSelection for the
+-- display-refreshing version.
+function AQL:SelectQuestLogEntry(logIndex)
+    WowQuestAPI.SelectQuestLogEntry(logIndex)
+end
+
+-- IsQuestLogShareable() → bool
+-- Returns true if the currently selected quest can be shared with party members.
+-- Delegates to WowQuestAPI.GetQuestLogPushable().
+-- WARNING: Result depends entirely on the current quest log selection.
+-- If nothing is selected or the wrong entry is selected, the result is
+-- meaningless. Prefer IsQuestIndexShareable or IsQuestIdShareable when
+-- operating on a specific quest. This method exists only for callers that
+-- have already managed selection themselves.
+-- Emits no debug message (pass-through; caller manages selection context).
+function AQL:IsQuestLogShareable()
+    return WowQuestAPI.GetQuestLogPushable()
+end
+
+-- SetQuestLogSelection(logIndex)
+-- Sets selection AND refreshes the quest log display.
+-- Calls WowQuestAPI.QuestLog_SetSelection(logIndex) followed immediately
+-- by WowQuestAPI.QuestLog_Update(). These two calls are always used together;
+-- this is the canonical two-call sequence.
+function AQL:SetQuestLogSelection(logIndex)
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] SetQuestLogSelection: logIndex=" .. tostring(logIndex) .. self.RESET)
+    end
+    WowQuestAPI.QuestLog_SetSelection(logIndex)
+    WowQuestAPI.QuestLog_Update()
+end
+
+-- ExpandQuestLogHeader(logIndex)
+-- Expands the collapsed zone header at logIndex.
+-- Verifies the entry is a header before acting; emits a normal-level debug
+-- message and returns without expanding if it is not.
+-- Emits a verbose debug message on successful expansion.
+function AQL:ExpandQuestLogHeader(logIndex)
+    local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
+    if not isHeader then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ExpandQuestLogHeader: logIndex=" .. tostring(logIndex) .. " is not a header — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.ExpandQuestHeader(logIndex)
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ExpandQuestLogHeader: expanded header at logIndex=" .. tostring(logIndex) .. self.RESET)
+    end
+end
+
+-- CollapseQuestLogHeader(logIndex)
+-- Collapses the zone header at logIndex.
+-- Verifies the entry is a header before acting; emits a normal-level debug
+-- message and returns without collapsing if it is not.
+-- Emits a verbose debug message on successful collapse.
+function AQL:CollapseQuestLogHeader(logIndex)
+    local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
+    if not isHeader then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] CollapseQuestLogHeader: logIndex=" .. tostring(logIndex) .. " is not a header — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.CollapseQuestHeader(logIndex)
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] CollapseQuestLogHeader: collapsed header at logIndex=" .. tostring(logIndex) .. self.RESET)
+    end
+end
+
+-- GetQuestDifficultyColor(level) → {r, g, b}
+-- Returns a color table for the given quest level relative to the player.
+function AQL:GetQuestDifficultyColor(level)
+    return WowQuestAPI.GetQuestDifficultyColor(level)
+end
+
+-- GetQuestLogIndex(questID) → logIndex or nil
+-- Returns the 1-based quest log index for a questID, or nil if not found.
+-- Returns nil for quests under collapsed zone headers — they are invisible
+-- to the WoW API even though the quest is in the player's log; expand the
+-- header first to make the quest visible.
+-- Zone header rows carry no questID and are never matched.
+function AQL:GetQuestLogIndex(questID)
+    return WowQuestAPI.GetQuestLogIndex(questID)
+end
+
+------------------------------------------------------------------------
 -- Slash command
 ------------------------------------------------------------------------
 
