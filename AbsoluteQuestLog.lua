@@ -697,6 +697,73 @@ function AQL:IsQuestLogZoneCollapsed(zoneName)
 end
 
 ------------------------------------------------------------------------
+-- Quest Log APIs — Compound ById
+-- Same operations as ByIndex but accept questID. Internally resolve
+-- questID → logIndex via WowQuestAPI.GetQuestLogIndex.
+-- If the questID is not in the player's active quest log (including quests
+-- under collapsed headers), all ById methods are silent no-ops:
+-- bool methods return false, void methods do nothing.
+-- A normal-level debug message is emitted so consumers can observe this.
+------------------------------------------------------------------------
+
+-- IsQuestIdShareable(questID) → bool
+-- Returns true if the quest with questID can be shared with party members.
+-- Returns false with a normal-level debug message if questID is not in
+-- the active quest log.
+function AQL:IsQuestIdShareable(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] IsQuestIdShareable: questID=" .. tostring(questID) .. " not in quest log — returning false" .. self.RESET)
+        end
+        return false
+    end
+    return self:IsQuestIndexShareable(logIndex)
+end
+
+-- SelectAndShowQuestLogEntryById(questID)
+-- Selects questID in the quest log and refreshes the display.
+-- No-op with a normal-level debug message if questID is not in the log.
+function AQL:SelectAndShowQuestLogEntryById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] SelectAndShowQuestLogEntryById: questID=" .. tostring(questID) .. " not in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    self:SelectAndShowQuestLogEntryByIndex(logIndex)
+end
+
+-- OpenQuestLogById(questID)
+-- Opens the quest log and navigates to questID.
+-- No-op with a normal-level debug message if questID is not in the log.
+function AQL:OpenQuestLogById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] OpenQuestLogById: questID=" .. tostring(questID) .. " not in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    self:OpenQuestLogByIndex(logIndex)
+end
+
+-- ToggleQuestLogById(questID)
+-- Toggles the quest log open/closed for questID.
+-- No-op with a normal-level debug message if questID is not in the log.
+function AQL:ToggleQuestLogById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ToggleQuestLogById: questID=" .. tostring(questID) .. " not in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    self:ToggleQuestLogByIndex(logIndex)
+end
+
+------------------------------------------------------------------------
 -- Slash command
 ------------------------------------------------------------------------
 
