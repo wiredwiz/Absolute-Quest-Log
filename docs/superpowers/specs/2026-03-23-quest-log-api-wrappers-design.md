@@ -101,6 +101,8 @@ Data and state queries about quests. No interaction with the quest log frame.
 
 Methods that interact with the built-in WoW quest log frame. Divided into three tiers:
 
+**Note on logIndex:** All logIndex values are positions in the *currently visible* quest log entries. The WoW quest log API only enumerates entries that are visible — quests under a collapsed zone header have no logIndex and are invisible to `GetQuestLogTitle`. This is why `QuestCache:Rebuild()` expands all headers before scanning. Any method taking `logIndex` operates on the entry currently at that visible position; any method resolving a logIndex from a questID (including `GetQuestLogIndex` and all ById methods) will return nil/no-op for quests under a collapsed header.
+
 **Thin Wrappers** — one-to-one with WoW globals. Take `logIndex` or no parameters.
 
 | Method | Description |
@@ -115,7 +117,7 @@ Methods that interact with the built-in WoW quest log frame. Divided into three 
 | `ExpandQuestLogHeader(logIndex)` | Expands a collapsed zone header row. Delegates to `WowQuestAPI.ExpandQuestHeader(logIndex)`. |
 | `CollapseQuestLogHeader(logIndex)` | Collapses a zone header row. Delegates to `WowQuestAPI.CollapseQuestHeader(logIndex)`. |
 | `GetQuestDifficultyColor(level)` | Returns `{r, g, b}` for the given quest level relative to the player. Delegates to `WowQuestAPI.GetQuestDifficultyColor(level)`. |
-| `GetQuestLogIndex(questID)` | Returns the 1-based quest log index for a questID, or nil if not in the player's quest log. Delegates to `WowQuestAPI.GetQuestLogIndex(questID)`. Zone header rows carry no questID and are automatically excluded from matching. |
+| `GetQuestLogIndex(questID)` | Returns the 1-based quest log index for a questID, or nil if not found. Delegates to `WowQuestAPI.GetQuestLogIndex(questID)`. **logIndex is always a position in the currently visible quest log entries** — quests under a collapsed zone header are invisible to the API and will return nil even though the quest is in the player's log. Zone header rows carry no questID and are automatically excluded from matching. |
 
 **Compound — ByIndex** — multi-step operations taking `logIndex`. Handle common ceremony that consumers would otherwise repeat.
 
