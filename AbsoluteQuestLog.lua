@@ -539,6 +539,88 @@ function AQL:GetSelectedQuestId()
     return questID
 end
 
+-- GetQuestLogEntries() → array
+-- Returns a structured array of all visible quest log entries in display order.
+-- Each element: { logIndex=N, isHeader=bool, title="string",
+--                 questID=N_or_nil, isCollapsed=bool_or_nil }
+-- For quest rows (non-headers): isCollapsed is nil.
+-- For header rows: questID is nil.
+-- Emits no debug message — pure data query.
+function AQL:GetQuestLogEntries()
+    local entries = {}
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local title, _, _, isHeader, isCollapsed, _, _, questID = WowQuestAPI.GetQuestLogTitle(i)
+        if title then
+            table.insert(entries, {
+                logIndex    = i,
+                isHeader    = isHeader == true,
+                title       = title,
+                questID     = (not isHeader) and questID or nil,
+                isCollapsed = isHeader and (isCollapsed == true) or nil,
+            })
+        end
+    end
+    return entries
+end
+
+-- GetQuestLogZoneNames() → array of strings
+-- Returns an ordered array of all zone header name strings in the quest log.
+-- Emits no debug message — pure data query.
+function AQL:GetQuestLogZoneNames()
+    local names = {}
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local title, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(i)
+        if title and isHeader then
+            table.insert(names, title)
+        end
+    end
+    return names
+end
+
+-- ExpandAllQuestLogHeaders()
+-- Expands all currently collapsed zone headers in the quest log.
+-- Emits a verbose debug message listing the count of headers expanded.
+function AQL:ExpandAllQuestLogHeaders()
+    local toExpand = {}
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local _, _, _, isHeader, isCollapsed = WowQuestAPI.GetQuestLogTitle(i)
+        if isHeader and isCollapsed then
+            table.insert(toExpand, i)
+        end
+    end
+    -- Expand back-to-front to preserve earlier indices.
+    for k = #toExpand, 1, -1 do
+        WowQuestAPI.ExpandQuestHeader(toExpand[k])
+    end
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ExpandAllQuestLogHeaders: expanded " .. tostring(#toExpand) .. " headers" .. self.RESET)
+    end
+end
+
+-- CollapseAllQuestLogHeaders()
+-- Collapses all zone headers in the quest log.
+-- Emits a verbose debug message listing the count of headers collapsed.
+function AQL:CollapseAllQuestLogHeaders()
+    local toCollapse = {}
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(i)
+        if isHeader then
+            table.insert(toCollapse, i)
+        end
+    end
+    -- Collapse back-to-front to preserve earlier indices.
+    for k = #toCollapse, 1, -1 do
+        WowQuestAPI.CollapseQuestHeader(toCollapse[k])
+    end
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] CollapseAllQuestLogHeaders: collapsed " .. tostring(#toCollapse) .. " headers" .. self.RESET)
+    end
+end
+
 ------------------------------------------------------------------------
 -- Slash command
 ------------------------------------------------------------------------
