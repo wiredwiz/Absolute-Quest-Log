@@ -121,8 +121,6 @@ Methods that interact with the built-in WoW quest log frame. Divided into three 
 
 For methods that need to iterate all quest log entries (`GetQuestLogEntries`, zone-by-name methods, expand/collapse-all methods), the iteration uses `WowQuestAPI.GetNumQuestLogEntries()` and `WowQuestAPI.GetQuestLogTitle(logIndex)`.
 
-**Note on header collapse and `QuestCache:Rebuild()`:** `QuestCache:Rebuild()` expands all collapsed zone headers before scanning the quest log, then re-collapses them. This means any headers collapsed by `CollapseQuestLogZoneByName`, `CollapseAllQuestLogHeaders`, or `ToggleQuestLogZoneByName` will be silently re-expanded by the next `QUEST_LOG_UPDATE` event that triggers a `Rebuild()`. Consumers should be aware that programmatic header collapse is ephemeral and will not survive a cache rebuild.
-
 | Method | Behavior |
 |---|---|
 | `IsQuestIndexShareable(logIndex)` | Saves current quest log selection via `WowQuestAPI.GetQuestLogSelection()` → selects `logIndex` via `WowQuestAPI.SelectQuestLogEntry(logIndex)` → calls `WowQuestAPI.GetQuestLogPushable()` → restores previous selection via `WowQuestAPI.SelectQuestLogEntry(savedIndex)`. Returns bool. The save/restore ensures the quest log's visual state is unchanged after the call. |
