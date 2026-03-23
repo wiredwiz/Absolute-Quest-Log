@@ -646,19 +646,27 @@ function AQL:GetQuestLogEntries()
     return entries
 end
 
--- GetQuestLogZoneNames() → array of strings
--- Returns an ordered array of all zone header name strings in the quest log.
+-- GetQuestLogZones() → array of {name, isCollapsed}
+-- Returns an ordered array of zone header entries in the quest log.
+-- Each element: { name="string", isCollapsed=bool }
+-- Useful for capturing collapsed state before bulk-expanding, then restoring:
+--   local zones = AQL:GetQuestLogZones()
+--   AQL:ExpandAllQuestLogHeaders()
+--   -- ... do work ...
+--   for _, z in ipairs(zones) do
+--       if z.isCollapsed then AQL:CollapseQuestLogZoneByName(z.name) end
+--   end
 -- Emits no debug message — pure data query.
-function AQL:GetQuestLogZoneNames()
-    local names = {}
+function AQL:GetQuestLogZones()
+    local zones = {}
     local numEntries = WowQuestAPI.GetNumQuestLogEntries()
     for i = 1, numEntries do
-        local title, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(i)
+        local title, _, _, isHeader, isCollapsed = WowQuestAPI.GetQuestLogTitle(i)
         if title and isHeader then
-            table.insert(names, title)
+            table.insert(zones, { name = title, isCollapsed = isCollapsed == true })
         end
     end
-    return names
+    return zones
 end
 
 -- ExpandAllQuestLogHeaders()

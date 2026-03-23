@@ -157,7 +157,7 @@ Methods that interact with the built-in WoW quest log frame.
 | `AQL:ToggleQuestLogByIndex(logIndex)` | — | Hides if shown+selected; else opens |
 | `AQL:GetSelectedQuestId()` | questID or nil | nil if nothing selected or header selected |
 | `AQL:GetQuestLogEntries()` | array | All visible entries: `{logIndex, isHeader, title, questID, isCollapsed}` |
-| `AQL:GetQuestLogZoneNames()` | array of strings | Ordered zone header names |
+| `AQL:GetQuestLogZones()` | array of `{name, isCollapsed}` | Ordered zone header entries; useful for save/restore of collapsed state |
 | `AQL:ExpandAllQuestLogHeaders()` | — | Expands all collapsed headers |
 | `AQL:CollapseAllQuestLogHeaders()` | — | Collapses all headers |
 | `AQL:ExpandQuestLogZoneByName(zoneName)` | — | No-op + normal debug if not found |
