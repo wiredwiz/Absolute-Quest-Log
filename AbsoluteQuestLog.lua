@@ -456,6 +456,90 @@ function AQL:GetQuestLogIndex(questID)
 end
 
 ------------------------------------------------------------------------
+-- Quest Log APIs — Compound ByIndex
+-- Multi-step operations taking logIndex. Delegate down to thin wrappers
+-- and WowQuestAPI. All iteration uses WowQuestAPI.GetNumQuestLogEntries()
+-- and WowQuestAPI.GetQuestLogTitle(i).
+------------------------------------------------------------------------
+
+-- IsQuestIndexShareable(logIndex) → bool
+-- Returns true if the quest at logIndex can be shared with party members.
+-- Verifies the entry is a quest row (not a header); returns false with a
+-- normal-level debug message if it is a header.
+-- Saves and restores the current quest log selection so the quest log's
+-- visual state is unchanged after the call.
+function AQL:IsQuestIndexShareable(logIndex)
+    local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
+    if isHeader then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] IsQuestIndexShareable: logIndex=" .. tostring(logIndex) .. " is a header row — returning false" .. self.RESET)
+        end
+        return false
+    end
+    local saved = WowQuestAPI.GetQuestLogSelection()
+    WowQuestAPI.SelectQuestLogEntry(logIndex)
+    local result = WowQuestAPI.GetQuestLogPushable()
+    WowQuestAPI.SelectQuestLogEntry(saved)
+    return result
+end
+
+-- SelectAndShowQuestLogEntryByIndex(logIndex)
+-- Selects the entry at logIndex and refreshes the quest log display.
+-- Delegates to SetQuestLogSelection (which emits a verbose debug message).
+function AQL:SelectAndShowQuestLogEntryByIndex(logIndex)
+    self:SetQuestLogSelection(logIndex)
+end
+
+-- OpenQuestLogByIndex(logIndex)
+-- Shows the quest log frame and navigates to logIndex.
+function AQL:OpenQuestLogByIndex(logIndex)
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] OpenQuestLogByIndex: showing quest log, navigating to logIndex=" .. tostring(logIndex) .. self.RESET)
+    end
+    WowQuestAPI.ShowQuestLog()
+    self:SelectAndShowQuestLogEntryByIndex(logIndex)
+end
+
+-- ToggleQuestLogByIndex(logIndex)
+-- If the quest log is shown and logIndex is the current selection, hides
+-- the quest log. Otherwise opens the quest log and navigates to logIndex.
+-- On the hide path: emits a verbose debug message.
+-- On the open path: delegates to OpenQuestLogByIndex (which emits its own
+-- verbose message — no separate message from ToggleQuestLogByIndex).
+function AQL:ToggleQuestLogByIndex(logIndex)
+    if WowQuestAPI.IsQuestLogShown() and WowQuestAPI.GetQuestLogSelection() == logIndex then
+        if self.debug == "verbose" then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ToggleQuestLogByIndex: quest log is shown and logIndex=" .. tostring(logIndex) .. " is selected — hiding" .. self.RESET)
+        end
+        WowQuestAPI.HideQuestLog()
+    else
+        self:OpenQuestLogByIndex(logIndex)
+    end
+end
+
+-- GetSelectedQuestId() → questID or nil
+-- Returns the questID of the currently selected quest log entry.
+-- Returns nil if nothing is selected (logIndex = 0) or if the selected
+-- entry is a zone header row.
+function AQL:GetSelectedQuestId()
+    local logIndex = WowQuestAPI.GetQuestLogSelection()
+    if not logIndex or logIndex == 0 then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] GetSelectedQuestId: no entry selected — returning nil" .. self.RESET)
+        end
+        return nil
+    end
+    local _, _, _, isHeader, _, _, _, questID = WowQuestAPI.GetQuestLogTitle(logIndex)
+    if isHeader or not questID then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] GetSelectedQuestId: selected entry logIndex=" .. tostring(logIndex) .. " is a zone header — returning nil" .. self.RESET)
+        end
+        return nil
+    end
+    return questID
+end
+
+------------------------------------------------------------------------
 -- Slash command
 ------------------------------------------------------------------------
 
