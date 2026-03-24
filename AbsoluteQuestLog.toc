@@ -5,6 +5,7 @@
 ## Version: 2.2.1
 ## X-Category: Library
 ## X-Embeds: LibStub, CallbackHandler-1.0
+## IconTexture: Interface\AddOns\AbsoluteQuestLog\Logo.png
 
 # Embedded libraries
 Libs\LibStub\LibStub.lua
