@@ -53,12 +53,13 @@ See the CALLBACKS section below for the full list of events and their arguments.
 
 
 --------------------------------------------------------------------------------
-  PUBLIC API
+  PUBLIC API — GROUP 1: QUEST APIS
 --------------------------------------------------------------------------------
 
+Data and state queries about quests. No interaction with the quest log frame.
 All methods are called on the library table (colon syntax).
 
-  --- Quest State Queries ---
+  --- Quest State ---
 
   AQL:GetQuest(questID)
       Returns the QuestInfo snapshot for a quest currently in the player's log,
@@ -82,6 +83,13 @@ All methods are called on the library table (colon syntax).
       (isComplete = true), meaning it is ready to be turned in but has not
       been yet.
 
+  AQL:GetQuestType(questID)
+      Returns the quest type string for an active quest, or nil. Possible
+      values are defined in AQL.QuestType (see CONSTANTS below).
+
+
+  --- Quest History ---
+
   AQL:HasCompletedQuest(questID)
       Returns true if the character has ever completed this quest. Checks the
       HistoryCache first, then falls back to IsQuestFlaggedCompleted.
@@ -93,12 +101,8 @@ All methods are called on the library table (colon syntax).
   AQL:GetCompletedQuestCount()
       Returns the number of quests completed this session.
 
-  AQL:GetQuestType(questID)
-      Returns the quest type string for an active quest, or nil. Possible
-      values are defined in AQL.QuestType (see CONSTANTS below).
 
-
-  --- Extended Resolution ---
+  --- Quest Resolution ---
 
   AQL:GetQuestInfo(questID)
       Three-tier resolution — use this when you need quest data for a quest
@@ -124,13 +128,8 @@ All methods are called on the library table (colon syntax).
       in the cache snapshot. For inactive quests it constructs the link from
       GetQuestInfo data.
 
-  AQL:GetQuestObjectives(questID)
-      Returns the objectives array for a questID. Uses the normalized cache
-      fields (isFinished, etc.) when the quest is active; falls back to the
-      raw WoW API when it is not.
 
-
-  --- Objective Queries ---
+  --- Objectives ---
 
   AQL:GetObjectives(questID)
       Returns the objectives array from the active cache, or nil if the quest
@@ -140,8 +139,19 @@ All methods are called on the library table (colon syntax).
   AQL:GetObjective(questID, index)
       Returns a single ObjectiveInfo by 1-based index, or nil.
 
+  AQL:GetQuestObjectives(questID)
+      Returns the objectives array for a questID. Uses the normalized cache
+      fields (isFinished, etc.) when the quest is active; falls back to the
+      raw WoW API when it is not.
 
-  --- Chain Queries ---
+  AQL:IsQuestObjectiveText(msg)
+      Returns true if msg matches the base description of any active quest
+      objective. Strips the count suffix (": X/Y") before comparing so that
+      stale-count UI_INFO_MESSAGE events still match. Used to identify
+      objective-progress system messages.
+
+
+  --- Chain Info ---
 
   AQL:GetChainInfo(questID)
       Returns a ChainInfo table for an active quest. Returns
@@ -157,7 +167,7 @@ All methods are called on the library table (colon syntax).
       status is not "known".
 
 
-  --- Tracking ---
+  --- Quest Tracking ---
 
   AQL:TrackQuest(questID)
       Adds the quest to the quest watch list. Returns false if the watch cap
@@ -166,21 +176,175 @@ All methods are called on the library table (colon syntax).
   AQL:UntrackQuest(questID)
       Removes the quest from the quest watch list.
 
-
-  --- Unit ---
-
   AQL:IsUnitOnQuest(questID, unit)
       Returns bool on Retail (UnitIsOnQuest is available). Returns nil on TBC
       Classic where the API does not exist.
 
 
-  --- Utility ---
+  --- Player & Level ---
 
-  AQL:IsQuestObjectiveText(msg)
-      Returns true if msg matches the base description of any active quest
-      objective. Strips the count suffix (": X/Y") before comparing so that
-      stale-count UI_INFO_MESSAGE events still match. Used to identify
-      objective-progress system messages.
+  Level filters use questInfo.level (recommended difficulty level shown in the
+  log). "Below" and "Above" are strict comparisons; "Between" is inclusive on
+  both endpoints. Delta methods calculate a threshold relative to player level
+  and delegate to the corresponding absolute method.
+
+  AQL:GetPlayerLevel()
+      Returns the player's current character level.
+
+  AQL:GetQuestsInQuestLogBelowLevel(level)
+      Returns { [questID] = QuestInfo } where questInfo.level < level.
+
+  AQL:GetQuestsInQuestLogAboveLevel(level)
+      Returns { [questID] = QuestInfo } where questInfo.level > level.
+
+  AQL:GetQuestsInQuestLogBetweenLevels(minLevel, maxLevel)
+      Returns { [questID] = QuestInfo } where minLevel <= questInfo.level <=
+      maxLevel. Returns an empty table (not nil) when minLevel > maxLevel.
+
+  AQL:GetQuestsInQuestLogBelowLevelDelta(delta)
+      Delegates to GetQuestsInQuestLogBelowLevel(playerLevel - delta).
+      Returns quests more than delta levels below the player.
+
+  AQL:GetQuestsInQuestLogAboveLevelDelta(delta)
+      Delegates to GetQuestsInQuestLogAboveLevel(playerLevel + delta).
+      Returns quests more than delta levels above the player.
+
+  AQL:GetQuestsInQuestLogWithinLevelRange(delta)
+      Delegates to GetQuestsInQuestLogBetweenLevels(playerLevel - delta,
+      playerLevel + delta). Returns quests within +/- delta levels of the
+      player (endpoints inclusive).
+
+
+--------------------------------------------------------------------------------
+  PUBLIC API — GROUP 2: QUEST LOG APIS
+--------------------------------------------------------------------------------
+
+Methods that interact with the built-in WoW quest log frame. Divided into thin
+wrappers (one-to-one with WoW globals) and compound methods (multi-step
+operations).
+
+  logIndex note: logIndex is always a position in the currently visible quest
+  log entries. Quests under a collapsed zone header are invisible to the WoW
+  API — GetQuestLogIndex returns nil for them, and all ById methods are silent
+  no-ops when the quest is not visible.
+
+
+  --- Thin Wrappers ---
+
+  AQL:ShowQuestLog()
+      Opens the quest log frame.
+
+  AQL:HideQuestLog()
+      Closes the quest log frame.
+
+  AQL:IsQuestLogShown()
+      Returns true if the quest log frame is currently visible.
+
+  AQL:GetQuestLogSelection()
+      Returns the currently selected logIndex (0 if nothing is selected).
+
+  AQL:SelectQuestLogEntry(logIndex)
+      Sets the selected quest log entry. Does not refresh the display.
+
+  AQL:IsQuestLogShareable()
+      Returns true if the currently selected quest can be shared with party
+      members. SELECTION-DEPENDENT: the result is meaningless unless the
+      correct entry is already selected. Prefer IsQuestIndexShareable or
+      IsQuestIdShareable when operating on a specific quest.
+
+  AQL:SetQuestLogSelection(logIndex)
+      Sets selection and refreshes the display. Calls QuestLog_SetSelection
+      followed immediately by QuestLog_Update — this is the canonical two-call
+      sequence for changing the visible selection.
+
+  AQL:ExpandQuestLogHeader(logIndex)
+      Expands a collapsed zone header row. No-op if logIndex is not a header.
+
+  AQL:CollapseQuestLogHeader(logIndex)
+      Collapses a zone header row. No-op if logIndex is not a header.
+
+  AQL:GetQuestDifficultyColor(level)
+      Returns { r, g, b } for the given quest level relative to the player.
+      Falls back to manual delta-based thresholds if the native API is absent.
+
+  AQL:GetQuestLogIndex(questID)
+      Returns the 1-based quest log index for a questID, or nil if not found.
+      Returns nil for quests under a collapsed zone header.
+
+
+  --- Compound — ByIndex ---
+
+  These methods take a logIndex and handle common ceremony such as selection
+  save/restore, the open+navigate sequence, and zone-name lookup.
+
+  AQL:IsQuestIndexShareable(logIndex)
+      Returns true if the quest at logIndex can be shared with party members.
+      Saves and restores the current selection so the quest log's visual state
+      is unchanged after the call. Returns false if logIndex is a header row.
+
+  AQL:SelectAndShowQuestLogEntryByIndex(logIndex)
+      Sets selection and refreshes display. Delegates to SetQuestLogSelection.
+
+  AQL:OpenQuestLogByIndex(logIndex)
+      Opens the quest log frame and navigates to logIndex.
+
+  AQL:ToggleQuestLogByIndex(logIndex)
+      Hides the quest log if it is currently shown and logIndex is selected.
+      Otherwise opens the quest log and navigates to logIndex.
+
+  AQL:GetSelectedQuestId()
+      Returns the questID of the currently selected entry, or nil if nothing
+      is selected or the selected entry is a zone header row.
+
+  AQL:GetQuestLogEntries()
+      Returns an array of all currently visible quest log entries in display
+      order. Each entry: { logIndex, isHeader, title, questID, isCollapsed }.
+      questID is nil for header rows; isCollapsed is nil for quest rows.
+
+  AQL:GetQuestLogZones()
+      Returns an ordered array of { name, isCollapsed } tables for every zone
+      header in the quest log. Useful for saving and restoring collapsed state
+      around bulk operations.
+
+  AQL:ExpandAllQuestLogHeaders()
+      Expands all collapsed zone headers.
+
+  AQL:CollapseAllQuestLogHeaders()
+      Collapses all zone headers.
+
+  AQL:ExpandQuestLogZoneByName(zoneName)
+      Expands the zone header matching zoneName. No-op if not found.
+
+  AQL:CollapseQuestLogZoneByName(zoneName)
+      Collapses the zone header matching zoneName. No-op if not found.
+
+  AQL:ToggleQuestLogZoneByName(zoneName)
+      Expands if collapsed, collapses if expanded. No-op if not found.
+
+  AQL:IsQuestLogZoneCollapsed(zoneName)
+      Returns true if the zone header is collapsed, false if expanded, nil if
+      the zone name is not found.
+
+
+  --- Compound — ById ---
+
+  Same operations as the ByIndex variants but accept a questID. Each method
+  resolves the questID to a logIndex internally. If the questID is not in the
+  active quest log (or is under a collapsed header), the method is a silent
+  no-op: bool methods return false, void methods do nothing. A debug message
+  is emitted at normal level so you can observe this during development.
+
+  AQL:IsQuestIdShareable(questID)
+      Resolves logIndex; delegates to IsQuestIndexShareable.
+
+  AQL:SelectAndShowQuestLogEntryById(questID)
+      Resolves logIndex; delegates to SelectAndShowQuestLogEntryByIndex.
+
+  AQL:OpenQuestLogById(questID)
+      Resolves logIndex; delegates to OpenQuestLogByIndex.
+
+  AQL:ToggleQuestLogById(questID)
+      Resolves logIndex; delegates to ToggleQuestLogByIndex.
 
 
 --------------------------------------------------------------------------------
