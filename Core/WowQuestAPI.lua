@@ -153,3 +153,127 @@ else
         return nil
     end
 end
+
+------------------------------------------------------------------------
+-- Quest Log Frame & Navigation
+-- Thin, stateless wrappers matching WoW global names exactly.
+-- Compound logic lives in AbsoluteQuestLog.lua.
+-- logIndex is always a position in the *currently visible* quest log
+-- entries. Quests under collapsed headers are invisible to these APIs.
+------------------------------------------------------------------------
+
+-- GetNumQuestLogEntries() → number
+-- Returns the total number of visible entries (zone headers + quests).
+function WowQuestAPI.GetNumQuestLogEntries()
+    return GetNumQuestLogEntries()
+end
+
+-- GetQuestLogTitle(logIndex) → title, level, suggestedGroup, isHeader, isCollapsed, isComplete, frequency, questID
+-- Returns all fields for the entry at the given visible logIndex.
+-- Header rows: title = zone name, isHeader = true, questID = nil.
+-- Quest rows:  isHeader = false, questID = the quest's numeric ID.
+function WowQuestAPI.GetQuestLogTitle(logIndex)
+    return GetQuestLogTitle(logIndex)
+end
+
+-- GetQuestLogSelection() → logIndex
+-- Returns the currently selected quest log entry index, or 0 if none selected.
+function WowQuestAPI.GetQuestLogSelection()
+    return GetQuestLogSelection()
+end
+
+-- SelectQuestLogEntry(logIndex)
+-- Sets the selected entry without refreshing the quest log display.
+function WowQuestAPI.SelectQuestLogEntry(logIndex)
+    SelectQuestLogEntry(logIndex)
+end
+
+-- GetQuestLogPushable() → bool
+-- Returns true if the currently selected quest can be shared with party members.
+-- Only meaningful when the target quest is already selected.
+function WowQuestAPI.GetQuestLogPushable()
+    return GetQuestLogPushable() ~= nil
+end
+
+-- QuestLog_SetSelection(logIndex)
+-- Updates the UI selection highlight. Always paired with QuestLog_Update().
+-- Use AQL:SetQuestLogSelection() for the canonical two-call sequence.
+function WowQuestAPI.QuestLog_SetSelection(logIndex)
+    QuestLog_SetSelection(logIndex)
+end
+
+-- QuestLog_Update()
+-- Refreshes the quest log display. Always paired with QuestLog_SetSelection().
+-- Use AQL:SetQuestLogSelection() for the canonical two-call sequence.
+function WowQuestAPI.QuestLog_Update()
+    QuestLog_Update()
+end
+
+-- ExpandQuestHeader(logIndex)
+-- Expands the collapsed zone header at logIndex.
+function WowQuestAPI.ExpandQuestHeader(logIndex)
+    ExpandQuestHeader(logIndex)
+end
+
+-- CollapseQuestHeader(logIndex)
+-- Collapses the zone header at logIndex.
+function WowQuestAPI.CollapseQuestHeader(logIndex)
+    CollapseQuestHeader(logIndex)
+end
+
+-- ShowQuestLog()
+-- Opens the quest log frame via ShowUIPanel(QuestLogFrame).
+function WowQuestAPI.ShowQuestLog()
+    ShowUIPanel(QuestLogFrame)
+end
+
+-- HideQuestLog()
+-- Closes the quest log frame via HideUIPanel(QuestLogFrame).
+function WowQuestAPI.HideQuestLog()
+    HideUIPanel(QuestLogFrame)
+end
+
+-- IsQuestLogShown() → bool
+-- Returns true if the quest log frame is currently visible.
+function WowQuestAPI.IsQuestLogShown()
+    return QuestLogFrame ~= nil and QuestLogFrame:IsShown() == true
+end
+
+-- GetQuestDifficultyColor(level) → {r, g, b}
+-- Returns a color table for a quest level relative to the player.
+-- Uses native GetQuestDifficultyColor if available; falls back to manual
+-- level-delta thresholds when the API is absent.
+-- Fallback thresholds (diff = questLevel - playerLevel):
+--   diff >= 5  → red    {1.00, 0.10, 0.10}  (very hard)
+--   diff >= 3  → orange {1.00, 0.50, 0.25}  (hard)
+--   diff >= -2 → yellow {1.00, 1.00, 0.00}  (normal)
+--   diff >= -5 → green  {0.25, 0.75, 0.25}  (easy)
+--   else       → grey   {0.75, 0.75, 0.75}  (trivial)
+function WowQuestAPI.GetQuestDifficultyColor(level)
+    if not level then return { r = 0.75, g = 0.75, b = 0.75 } end
+    if GetQuestDifficultyColor then
+        local color = GetQuestDifficultyColor(level)
+        if color then
+            return { r = color.r, g = color.g, b = color.b }
+        end
+    end
+    local playerLevel = UnitLevel("player") or 1
+    local diff = level - playerLevel
+    if diff >= 5 then
+        return { r = 1.00, g = 0.10, b = 0.10 }
+    elseif diff >= 3 then
+        return { r = 1.00, g = 0.50, b = 0.25 }
+    elseif diff >= -2 then
+        return { r = 1.00, g = 1.00, b = 0.00 }
+    elseif diff >= -5 then
+        return { r = 0.25, g = 0.75, b = 0.25 }
+    else
+        return { r = 0.75, g = 0.75, b = 0.75 }
+    end
+end
+
+-- GetPlayerLevel() → number
+-- Returns the player's current character level.
+function WowQuestAPI.GetPlayerLevel()
+    return UnitLevel("player")
+end

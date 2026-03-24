@@ -1,0 +1,64 @@
+AbsoluteQuestLog-1.0 Changelog
+==============================
+
+Version 2.2.1 (March 2026)
+---------------------------
+- Added AQL.Event constant table for all 12 AQL callback event strings.
+  Consumers should now register callbacks using the constants:
+    AQL:RegisterCallback(AQL.Event.QuestAccepted, handler, target)
+  Constants: QuestAccepted, QuestAbandoned, QuestCompleted, QuestFinished,
+  QuestFailed, QuestTracked, QuestUntracked, ObjectiveProgressed,
+  ObjectiveCompleted, ObjectiveRegressed, ObjectiveFailed, UnitQuestLogChanged.
+
+- Replaced GetQuestLogZoneNames() with GetQuestLogZones(). The new method
+  returns an array of {name, isCollapsed} tables instead of plain strings,
+  making it easy to capture and restore collapsed state around bulk operations:
+    local zones = AQL:GetQuestLogZones()
+    AQL:ExpandAllQuestLogHeaders()
+    -- ... do work ...
+    for _, z in ipairs(zones) do
+        if z.isCollapsed then AQL:CollapseQuestLogZoneByName(z.name) end
+    end
+
+- Added doc comments to all Group 1 public API methods.
+
+
+Version 2.2.0 (March 2026)
+---------------------------
+- Added Quest Log Frame & Navigation wrappers to WowQuestAPI: GetNumQuestLogEntries,
+  GetQuestLogTitle, GetQuestLogSelection, SelectQuestLogEntry, GetQuestLogPushable,
+  QuestLog_SetSelection, QuestLog_Update, ExpandQuestHeader, CollapseQuestHeader,
+  ShowQuestLog, HideQuestLog, IsQuestLogShown, GetQuestDifficultyColor, GetPlayerLevel.
+
+- Added Group 2: Quest Log APIs to the AQL public interface.
+  Thin wrappers (one-to-one with WoW globals):
+    ShowQuestLog, HideQuestLog, IsQuestLogShown, GetQuestLogSelection,
+    SelectQuestLogEntry, IsQuestLogShareable, SetQuestLogSelection,
+    ExpandQuestLogHeader, CollapseQuestLogHeader, GetQuestDifficultyColor,
+    GetQuestLogIndex.
+  Compound ByIndex (multi-step operations):
+    IsQuestIndexShareable, SelectAndShowQuestLogEntryByIndex, OpenQuestLogByIndex,
+    ToggleQuestLogByIndex, GetSelectedQuestId, GetQuestLogEntries, GetQuestLogZones,
+    ExpandAllQuestLogHeaders, CollapseAllQuestLogHeaders, ExpandQuestLogZoneByName,
+    CollapseQuestLogZoneByName, ToggleQuestLogZoneByName, IsQuestLogZoneCollapsed.
+  Compound ById (resolve questID to logIndex, then delegate to ByIndex):
+    IsQuestIdShareable, SelectAndShowQuestLogEntryById, OpenQuestLogById,
+    ToggleQuestLogById.
+
+- Added Group 1: Player & Level section.
+    GetPlayerLevel, GetQuestsInQuestLogBelowLevel, GetQuestsInQuestLogAboveLevel,
+    GetQuestsInQuestLogBetweenLevels, GetQuestsInQuestLogBelowLevelDelta,
+    GetQuestsInQuestLogAboveLevelDelta, GetQuestsInQuestLogWithinLevelRange.
+
+- Reorganized AbsoluteQuestLog.lua public API into two groups with subsections:
+  Group 1 (Quest APIs): Quest State, Quest History, Quest Resolution, Objectives,
+  Chain Info, Quest Tracking, Player & Level.
+  Group 2 (Quest Log APIs): Thin Wrappers, Compound ByIndex, Compound ById.
+
+
+Version 2.1.1 (March 2026)
+---------------------------
+- Bundled LibStub and CallbackHandler-1.0 inside Libs\. AQL is now fully
+  self-contained with zero external addon dependencies. Both libraries are
+  self-versioning via LibStub and deduplicate safely if another addon loads
+  the same or newer version.

@@ -53,7 +53,11 @@ Provider selection runs at `PLAYER_LOGIN` via `selectProvider()`. Because Questi
 
 ## Public API
 
-### Quest State Queries
+### Group 1: Quest APIs
+
+Data and state queries about quests. No interaction with the quest log frame.
+
+#### Quest State
 
 | Method | Returns | Notes |
 |---|---|---|
@@ -62,21 +66,34 @@ Provider selection runs at `PLAYER_LOGIN` via `selectProvider()`. Because Questi
 | `AQL:GetQuestsByZone(zone)` | `{[questID]=QuestInfo}` | Filters cache by zone |
 | `AQL:IsQuestActive(questID)` | bool | True if quest is in active log |
 | `AQL:IsQuestFinished(questID)` | bool | True if objectives complete, not yet turned in |
+| `AQL:GetQuestType(questID)` | string or nil | From cache only |
+
+#### Quest History
+
+| Method | Returns | Notes |
+|---|---|---|
 | `AQL:HasCompletedQuest(questID)` | bool | HistoryCache + `IsQuestFlaggedCompleted` fallback |
 | `AQL:GetCompletedQuests()` | `{[questID]=true}` | All completed quests this session |
 | `AQL:GetCompletedQuestCount()` | number | Count of completed quests |
-| `AQL:GetQuestType(questID)` | string or nil | From cache only |
 
-### Extended Resolution (Three-Tier)
+#### Quest Resolution
 
 | Method | Returns | Notes |
 |---|---|---|
 | `AQL:GetQuestInfo(questID)` | `QuestInfo` or nil | Tier 1: cache → Tier 2: WoW log scan / title fallback → Tier 3: provider |
 | `AQL:GetQuestTitle(questID)` | string or nil | Delegates to `GetQuestInfo` |
 | `AQL:GetQuestLink(questID)` | hyperlink or nil | Tier 1: cache link → Tier 2/3: `GetQuestInfo` |
-| `AQL:GetQuestObjectives(questID)` | array | Cache first; `WowQuestAPI` fallback |
 
-### Chain Queries
+#### Objectives
+
+| Method | Returns | Notes |
+|---|---|---|
+| `AQL:GetObjectives(questID)` | array or nil | |
+| `AQL:GetObjective(questID, index)` | table or nil | |
+| `AQL:GetQuestObjectives(questID)` | array | Cache first; `WowQuestAPI` fallback |
+| `AQL:IsQuestObjectiveText(msg)` | bool | Matches `UI_INFO_MESSAGE` text against active objectives |
+
+#### Chain Info
 
 | Method | Returns | Notes |
 |---|---|---|
@@ -84,21 +101,80 @@ Provider selection runs at `PLAYER_LOGIN` via `selectProvider()`. Because Questi
 | `AQL:GetChainStep(questID)` | number or nil | |
 | `AQL:GetChainLength(questID)` | number or nil | |
 
-### Objective Queries
-
-| Method | Returns | Notes |
-|---|---|---|
-| `AQL:GetObjectives(questID)` | array or nil | |
-| `AQL:GetObjective(questID, index)` | table or nil | |
-| `AQL:IsQuestObjectiveText(msg)` | bool | Matches `UI_INFO_MESSAGE` text against active objectives (base-name prefix match, stale-count safe) |
-
-### Tracking / Unit
+#### Quest Tracking
 
 | Method | Returns | Notes |
 |---|---|---|
 | `AQL:TrackQuest(questID)` | bool | Returns false if at `MAX_WATCHABLE_QUESTS` cap |
 | `AQL:UntrackQuest(questID)` | — | |
 | `AQL:IsUnitOnQuest(questID, unit)` | bool or nil | nil on TBC (API unavailable) |
+
+#### Player & Level
+
+All level filters use `questInfo.level` (recommended difficulty level). Strict comparisons for Below/Above; inclusive for Between. Delta methods delegate to absolute methods.
+
+| Method | Returns | Notes |
+|---|---|---|
+| `AQL:GetPlayerLevel()` | number | Player's current level |
+| `AQL:GetQuestsInQuestLogBelowLevel(level)` | `{[questID]=QuestInfo}` | `questInfo.level < level` |
+| `AQL:GetQuestsInQuestLogAboveLevel(level)` | `{[questID]=QuestInfo}` | `questInfo.level > level` |
+| `AQL:GetQuestsInQuestLogBetweenLevels(min, max)` | `{[questID]=QuestInfo}` | `min <= questInfo.level <= max`; `{}` if min > max |
+| `AQL:GetQuestsInQuestLogBelowLevelDelta(delta)` | `{[questID]=QuestInfo}` | Delegates to `BelowLevel(playerLevel - delta)` |
+| `AQL:GetQuestsInQuestLogAboveLevelDelta(delta)` | `{[questID]=QuestInfo}` | Delegates to `AboveLevel(playerLevel + delta)` |
+| `AQL:GetQuestsInQuestLogWithinLevelRange(delta)` | `{[questID]=QuestInfo}` | Delegates to `BetweenLevels(playerLevel - delta, playerLevel + delta)` |
+
+---
+
+### Group 2: Quest Log APIs
+
+Methods that interact with the built-in WoW quest log frame.
+
+**logIndex note:** logIndex is always a position in the *currently visible* entries. Quests under collapsed zone headers are invisible to the WoW API; `GetQuestLogIndex` returns nil for them.
+
+#### Thin Wrappers
+
+| Method | Returns | Notes |
+|---|---|---|
+| `AQL:ShowQuestLog()` | — | Opens the quest log frame |
+| `AQL:HideQuestLog()` | — | Closes the quest log frame |
+| `AQL:IsQuestLogShown()` | bool | True if quest log is visible |
+| `AQL:GetQuestLogSelection()` | logIndex | 0 if nothing selected |
+| `AQL:SelectQuestLogEntry(logIndex)` | — | Sets selection; no display refresh |
+| `AQL:IsQuestLogShareable()` | bool | **Selection-dependent** — only meaningful when correct entry is already selected; prefer `IsQuestIndexShareable` / `IsQuestIdShareable` |
+| `AQL:SetQuestLogSelection(logIndex)` | — | Sets selection + refreshes display (canonical `QuestLog_SetSelection` + `QuestLog_Update` pair) |
+| `AQL:ExpandQuestLogHeader(logIndex)` | — | Guards: no-op + normal debug if not a header |
+| `AQL:CollapseQuestLogHeader(logIndex)` | — | Guards: no-op + normal debug if not a header |
+| `AQL:GetQuestDifficultyColor(level)` | `{r,g,b}` | Fallback to manual delta if native API absent |
+| `AQL:GetQuestLogIndex(questID)` | logIndex or nil | nil if not in log or under collapsed header |
+
+#### Compound — ByIndex
+
+| Method | Returns | Notes |
+|---|---|---|
+| `AQL:IsQuestIndexShareable(logIndex)` | bool | Save/check/restore; guards against header rows |
+| `AQL:SelectAndShowQuestLogEntryByIndex(logIndex)` | — | Delegates to `SetQuestLogSelection` |
+| `AQL:OpenQuestLogByIndex(logIndex)` | — | Shows log + navigates to logIndex |
+| `AQL:ToggleQuestLogByIndex(logIndex)` | — | Hides if shown+selected; else opens |
+| `AQL:GetSelectedQuestId()` | questID or nil | nil if nothing selected or header selected |
+| `AQL:GetQuestLogEntries()` | array | All visible entries: `{logIndex, isHeader, title, questID, isCollapsed}` |
+| `AQL:GetQuestLogZones()` | array of `{name, isCollapsed}` | Ordered zone header entries; useful for save/restore of collapsed state |
+| `AQL:ExpandAllQuestLogHeaders()` | — | Expands all collapsed headers |
+| `AQL:CollapseAllQuestLogHeaders()` | — | Collapses all headers |
+| `AQL:ExpandQuestLogZoneByName(zoneName)` | — | No-op + normal debug if not found |
+| `AQL:CollapseQuestLogZoneByName(zoneName)` | — | No-op + normal debug if not found |
+| `AQL:ToggleQuestLogZoneByName(zoneName)` | — | Expand/collapse; no-op + normal debug if not found |
+| `AQL:IsQuestLogZoneCollapsed(zoneName)` | bool or nil | nil if not found |
+
+#### Compound — ById
+
+If questID is not in the active quest log, all ById methods are silent no-ops (false / nothing). A normal-level debug message is emitted.
+
+| Method | Returns | Notes |
+|---|---|---|
+| `AQL:IsQuestIdShareable(questID)` | bool | Resolves logIndex; delegates to `IsQuestIndexShareable` |
+| `AQL:SelectAndShowQuestLogEntryById(questID)` | — | Resolves logIndex; delegates to ByIndex variant |
+| `AQL:OpenQuestLogById(questID)` | — | Resolves logIndex; delegates to ByIndex variant |
+| `AQL:ToggleQuestLogById(questID)` | — | Resolves logIndex; delegates to ByIndex variant |
 
 ### Callbacks
 
@@ -231,6 +307,17 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ---
 
 ## Version History
+
+### Version 2.2.1 (March 2026)
+- Added `AQL.Event` enumeration constant table for all 12 AQL callback event strings (`QuestAccepted`, `QuestAbandoned`, `QuestCompleted`, `QuestFinished`, `QuestFailed`, `QuestTracked`, `QuestUntracked`, `ObjectiveProgressed`, `ObjectiveCompleted`, `ObjectiveRegressed`, `ObjectiveFailed`, `UnitQuestLogChanged`); all raw `"AQL_*"` string literals in `EventEngine.lua` replaced with constants
+- Replaced `GetQuestLogZoneNames()` (returned array of strings) with `GetQuestLogZones()` returning `{name, isCollapsed}` entries per zone header, enabling save/restore of collapsed state around bulk operations
+- Added doc comments to all previously undocumented Group 1 public API methods
+
+### Version 2.2.0 (March 2026)
+- Added Quest Log Frame & Navigation wrappers to `WowQuestAPI.lua` (`GetNumQuestLogEntries`, `GetQuestLogTitle`, `GetQuestLogSelection`, `SelectQuestLogEntry`, `GetQuestLogPushable`, `QuestLog_SetSelection`, `QuestLog_Update`, `ExpandQuestHeader`, `CollapseQuestHeader`, `ShowQuestLog`, `HideQuestLog`, `IsQuestLogShown`, `GetQuestDifficultyColor`, `GetPlayerLevel`)
+- Added Group 2 Quest Log APIs to AQL public interface: 11 thin wrappers, 13 compound ByIndex methods, 4 compound ById methods
+- Added Group 1 Player & Level section: `GetPlayerLevel` + 6 level-range filtering methods
+- Reorganized `AbsoluteQuestLog.lua` public API into two-group structure (Quest APIs / Quest Log APIs) with subsections
 
 ### Version 2.1.1 (March 2026)
 - Bundled LibStub and CallbackHandler-1.0 inside `Libs\`. Removed `## Dependencies: Ace3` from the toc. AQL is now fully self-contained with zero external dependencies. Both libraries are self-versioning via LibStub and deduplicate safely if Ace3 or another addon loads the same or newer versions.

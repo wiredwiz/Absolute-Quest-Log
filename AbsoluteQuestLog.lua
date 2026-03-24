@@ -6,7 +6,10 @@ local MAJOR, MINOR = "AbsoluteQuestLog-1.0", 1
 local AQL, oldVersion = LibStub:NewLibrary(MAJOR, MINOR)
 if not AQL then return end  -- Already loaded at equal or higher version.
 
--- CallbackHandler provides AQL:RegisterCallback / AQL:UnregisterCallback.
+-- CallbackHandler injects AQL:RegisterCallback and AQL:UnregisterCallback.
+-- Usage: AQL:RegisterCallback(AQL.Event.QuestAccepted, handler, target)
+--        AQL:UnregisterCallback(AQL.Event.QuestAccepted, handler)
+-- Available events are the string constants in AQL.Event (defined below).
 AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 
 -- Chat color escape sequences for debug/error messages.
@@ -71,22 +74,51 @@ AQL.FailReason = {
     EscortDied = "escort_died",
 }
 
+AQL.Event = {
+    QuestAccepted        = "AQL_QUEST_ACCEPTED",
+    QuestAbandoned       = "AQL_QUEST_ABANDONED",
+    QuestCompleted       = "AQL_QUEST_COMPLETED",
+    QuestFinished        = "AQL_QUEST_FINISHED",
+    QuestFailed          = "AQL_QUEST_FAILED",
+    QuestTracked         = "AQL_QUEST_TRACKED",
+    QuestUntracked       = "AQL_QUEST_UNTRACKED",
+    ObjectiveProgressed  = "AQL_OBJECTIVE_PROGRESSED",
+    ObjectiveCompleted   = "AQL_OBJECTIVE_COMPLETED",
+    ObjectiveRegressed   = "AQL_OBJECTIVE_REGRESSED",
+    ObjectiveFailed      = "AQL_OBJECTIVE_FAILED",
+    UnitQuestLogChanged  = "AQL_UNIT_QUEST_LOG_CHANGED",
+}
+
 ------------------------------------------------------------------------
--- Public API: Quest State Queries
+-- GROUP 1: QUEST APIS
+-- Data and state queries about quests. No interaction with the quest log frame.
 ------------------------------------------------------------------------
 
+------------------------------------------------------------------------
+-- Quest State
+------------------------------------------------------------------------
+
+-- GetQuest(questID) → QuestInfo or nil
+-- Returns the cached QuestInfo for questID, or nil if the quest is not in
+-- the player's active log. Cache-only — does not scan the WoW log or
+-- provider. Use GetQuestInfo for three-tier resolution.
 function AQL:GetQuest(questID)
     return self.QuestCache and self.QuestCache:Get(questID) or nil
 end
 
+-- GetAllQuests() → {[questID]=QuestInfo}
+-- Returns the full active quest cache snapshot.
+-- Keys are questIDs; values are QuestInfo tables.
 function AQL:GetAllQuests()
     return self.QuestCache and self.QuestCache:GetAll() or {}
 end
 
+-- GetQuestsByZone(zone) → {[questID]=QuestInfo}
+-- Returns all active quests whose zone field matches zone.
+-- zone is the English canonical zone name as stored by the active chain
+-- provider (e.g. "Blasted Lands"). On non-English clients, use
+-- GetAllQuests() and filter by questID instead.
 function AQL:GetQuestsByZone(zone)
-    -- zone is the English canonical zone name as stored by the active chain
-    -- provider (e.g. "Blasted Lands"). On non-English clients, use
-    -- GetAllQuests() and filter by questID instead.
     local result = {}
     for questID, info in pairs(self:GetAllQuests()) do
         if info.zone == zone then
@@ -96,15 +128,27 @@ function AQL:GetQuestsByZone(zone)
     return result
 end
 
+-- IsQuestActive(questID) → bool
+-- Returns true if questID is currently in the player's active quest log.
 function AQL:IsQuestActive(questID)
     return self.QuestCache ~= nil and self.QuestCache:Get(questID) ~= nil
 end
 
+-- IsQuestFinished(questID) → bool
+-- Returns true if questID is in the log and all objectives are met
+-- (isComplete = true) but the quest has not yet been turned in.
 function AQL:IsQuestFinished(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     return q ~= nil and q.isComplete == true
 end
 
+------------------------------------------------------------------------
+-- Quest History
+------------------------------------------------------------------------
+
+-- HasCompletedQuest(questID) → bool
+-- Returns true if questID is in the character's completion history.
+-- Checks HistoryCache first; falls back to WowQuestAPI.IsQuestFlaggedCompleted.
 function AQL:HasCompletedQuest(questID)
     if self.HistoryCache and self.HistoryCache:HasCompleted(questID) then
         return true
@@ -112,19 +156,32 @@ function AQL:HasCompletedQuest(questID)
     return WowQuestAPI.IsQuestFlaggedCompleted(questID)
 end
 
+-- GetCompletedQuests() → {[questID]=true}
+-- Returns the full set of quests completed by this character.
 function AQL:GetCompletedQuests()
     return self.HistoryCache and self.HistoryCache:GetAll() or {}
 end
 
+-- GetCompletedQuestCount() → number
+-- Returns the count of quests completed by this character.
 function AQL:GetCompletedQuestCount()
     return self.HistoryCache and self.HistoryCache:GetCount() or 0
 end
 
+-- GetQuestType(questID) → string or nil
+-- Returns the quest type from the cache (e.g. AQL.QuestType.Elite), or nil
+-- if unknown. Cache-only; returns nil if the quest is not in the active log.
 function AQL:GetQuestType(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     return q and q.type or nil
 end
 
+-- GetQuestLink(questID) → hyperlink string or nil
+-- Returns a WoW quest hyperlink for questID.
+-- Tier 1: live cache link (pre-built by QuestCache._buildEntry with fallback
+-- construction, so always non-nil for active quests).
+-- Tier 2/3: constructs a link from GetQuestInfo when the quest is not cached.
+-- Returns nil only when no title can be resolved (all three tiers exhausted).
 function AQL:GetQuestLink(questID)
     -- Tier 1: live cache (always non-nil for active quests; see _buildEntry fallback).
     local q = self.QuestCache and self.QuestCache:Get(questID)
@@ -142,23 +199,32 @@ function AQL:GetQuestLink(questID)
 end
 
 ------------------------------------------------------------------------
--- Public API: Objective Queries
+-- Objectives
 ------------------------------------------------------------------------
 
+-- GetObjectives(questID) → array or nil
+-- Returns the objectives array for questID from the cache, or nil if the
+-- quest is not in the active log.
+-- Each entry: { index, text, name, type, numFulfilled, numRequired, isFinished, isFailed }.
 function AQL:GetObjectives(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     return q and q.objectives or nil
 end
 
+-- GetObjective(questID, index) → table or nil
+-- Returns the single objective at index for questID, or nil if not found.
 function AQL:GetObjective(questID, index)
     local objs = self:GetObjectives(questID)
     return objs and objs[index] or nil
 end
 
 ------------------------------------------------------------------------
--- Public API: Chain Queries
+-- Chain Info
 ------------------------------------------------------------------------
 
+-- GetChainInfo(questID) → ChainInfo
+-- Returns chain info from the cache. Falls back to
+-- { knownStatus = AQL.ChainStatus.Unknown } when not found. Never returns nil.
 function AQL:GetChainInfo(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     if q and q.chainInfo then
@@ -167,19 +233,20 @@ function AQL:GetChainInfo(questID)
     return { knownStatus = AQL.ChainStatus.Unknown }
 end
 
+-- GetChainStep(questID) → number or nil
+-- Returns the 1-based step position of questID in its chain, or nil if unknown.
 function AQL:GetChainStep(questID)
     return self:GetChainInfo(questID).step
 end
 
+-- GetChainLength(questID) → number or nil
+-- Returns the total number of quests in questID's chain, or nil if unknown.
 function AQL:GetChainLength(questID)
     return self:GetChainInfo(questID).length
 end
 
--- AQL:RegisterCallback(event, handler, target) -- from CallbackHandler
--- AQL:UnregisterCallback(event, handler)        -- from CallbackHandler
-
 ------------------------------------------------------------------------
--- Public API: WowQuestAPI-backed Extended Queries
+-- Quest Resolution
 ------------------------------------------------------------------------
 
 -- Three-tier resolution. Contrast with AQL:GetQuest which is cache-only.
@@ -294,6 +361,10 @@ function AQL:IsQuestObjectiveText(msg)
     return false
 end
 
+------------------------------------------------------------------------
+-- Quest Tracking
+------------------------------------------------------------------------
+
 -- Tracks a quest by questID.
 -- Returns false if the watch cap (MAX_WATCHABLE_QUESTS) is already reached.
 -- Returns true if the quest was successfully handed to AddQuestWatch.
@@ -314,6 +385,530 @@ end
 -- Returns bool on Retail (UnitIsOnQuest exists), nil on TBC/Classic.
 function AQL:IsUnitOnQuest(questID, unit)
     return WowQuestAPI.IsUnitOnQuest(questID, unit)
+end
+
+------------------------------------------------------------------------
+-- Player & Level
+-- Filters the active quest cache by quest level (questInfo.level —
+-- the recommended difficulty level, not requiredLevel).
+-- Absolute-level methods use strict comparisons: < and >.
+-- BetweenLevels is inclusive on both endpoints.
+-- Delta methods delegate to the absolute methods; delta should be a
+-- non-negative integer (negative values produce valid but counter-intuitive
+-- results — see individual method notes).
+-- All methods return {} (never nil) when no quests match.
+-- No debug messages — pure data queries.
+------------------------------------------------------------------------
+
+-- GetPlayerLevel() → number
+-- Returns the player's current character level.
+function AQL:GetPlayerLevel()
+    return WowQuestAPI.GetPlayerLevel()
+end
+
+-- GetQuestsInQuestLogBelowLevel(level) → {[questID]=QuestInfo}
+-- Returns all active quests where questInfo.level < level.
+function AQL:GetQuestsInQuestLogBelowLevel(level)
+    local result = {}
+    for questID, info in pairs(self:GetAllQuests()) do
+        if info.level and info.level < level then
+            result[questID] = info
+        end
+    end
+    return result
+end
+
+-- GetQuestsInQuestLogAboveLevel(level) → {[questID]=QuestInfo}
+-- Returns all active quests where questInfo.level > level.
+function AQL:GetQuestsInQuestLogAboveLevel(level)
+    local result = {}
+    for questID, info in pairs(self:GetAllQuests()) do
+        if info.level and info.level > level then
+            result[questID] = info
+        end
+    end
+    return result
+end
+
+-- GetQuestsInQuestLogBetweenLevels(minLevel, maxLevel) → {[questID]=QuestInfo}
+-- Returns all active quests where minLevel <= questInfo.level <= maxLevel.
+-- Returns {} if minLevel > maxLevel.
+function AQL:GetQuestsInQuestLogBetweenLevels(minLevel, maxLevel)
+    local result = {}
+    for questID, info in pairs(self:GetAllQuests()) do
+        if info.level and info.level >= minLevel and info.level <= maxLevel then
+            result[questID] = info
+        end
+    end
+    return result
+end
+
+-- GetQuestsInQuestLogBelowLevelDelta(delta) → {[questID]=QuestInfo}
+-- Returns quests more than delta levels below the player.
+-- e.g. delta=5 at player level 40 → quests strictly below level 35.
+-- Delegates to GetQuestsInQuestLogBelowLevel(playerLevel - delta).
+function AQL:GetQuestsInQuestLogBelowLevelDelta(delta)
+    return self:GetQuestsInQuestLogBelowLevel(WowQuestAPI.GetPlayerLevel() - delta)
+end
+
+-- GetQuestsInQuestLogAboveLevelDelta(delta) → {[questID]=QuestInfo}
+-- Returns quests more than delta levels above the player.
+-- e.g. delta=5 at player level 40 → quests strictly above level 45.
+-- Delegates to GetQuestsInQuestLogAboveLevel(playerLevel + delta).
+function AQL:GetQuestsInQuestLogAboveLevelDelta(delta)
+    return self:GetQuestsInQuestLogAboveLevel(WowQuestAPI.GetPlayerLevel() + delta)
+end
+
+-- GetQuestsInQuestLogWithinLevelRange(delta) → {[questID]=QuestInfo}
+-- Returns quests within ±delta levels of the player's current level
+-- (inclusive endpoints — the "currently worth doing" set).
+-- e.g. delta=3 at player level 40 → quests between levels 37 and 43.
+-- Delegates to GetQuestsInQuestLogBetweenLevels(playerLevel - delta, playerLevel + delta).
+function AQL:GetQuestsInQuestLogWithinLevelRange(delta)
+    local playerLevel = WowQuestAPI.GetPlayerLevel()
+    return self:GetQuestsInQuestLogBetweenLevels(playerLevel - delta, playerLevel + delta)
+end
+
+------------------------------------------------------------------------
+-- GROUP 2: QUEST LOG APIS
+-- Methods that interact with the built-in WoW quest log frame.
+--
+-- logIndex note: logIndex is always a position in the *currently visible*
+-- quest log entries. Quests under collapsed zone headers are invisible to
+-- the WoW API and return nil from any logIndex-resolution method.
+------------------------------------------------------------------------
+
+------------------------------------------------------------------------
+-- Quest Log APIs — Thin Wrappers
+-- One-to-one with WoW globals. No debug messages (direct pass-throughs).
+------------------------------------------------------------------------
+
+-- ShowQuestLog()
+-- Opens the quest log frame.
+function AQL:ShowQuestLog()
+    WowQuestAPI.ShowQuestLog()
+end
+
+-- HideQuestLog()
+-- Closes the quest log frame.
+function AQL:HideQuestLog()
+    WowQuestAPI.HideQuestLog()
+end
+
+-- IsQuestLogShown() → bool
+-- Returns true if the quest log frame is currently visible.
+function AQL:IsQuestLogShown()
+    return WowQuestAPI.IsQuestLogShown()
+end
+
+-- GetQuestLogSelection() → logIndex
+-- Returns the currently selected quest log entry index (0 if none selected).
+function AQL:GetQuestLogSelection()
+    return WowQuestAPI.GetQuestLogSelection()
+end
+
+-- SelectQuestLogEntry(logIndex)
+-- Sets the selected entry without refreshing the quest log display.
+-- Does not emit a debug message — use SetQuestLogSelection for the
+-- display-refreshing version.
+function AQL:SelectQuestLogEntry(logIndex)
+    WowQuestAPI.SelectQuestLogEntry(logIndex)
+end
+
+-- IsQuestLogShareable() → bool
+-- Returns true if the currently selected quest can be shared with party members.
+-- Delegates to WowQuestAPI.GetQuestLogPushable().
+-- WARNING: Result depends entirely on the current quest log selection.
+-- If nothing is selected or the wrong entry is selected, the result is
+-- meaningless. Prefer IsQuestIndexShareable or IsQuestIdShareable when
+-- operating on a specific quest. This method exists only for callers that
+-- have already managed selection themselves.
+-- Emits no debug message (pass-through; caller manages selection context).
+function AQL:IsQuestLogShareable()
+    return WowQuestAPI.GetQuestLogPushable()
+end
+
+-- SetQuestLogSelection(logIndex)
+-- Sets selection AND refreshes the quest log display.
+-- Calls WowQuestAPI.QuestLog_SetSelection(logIndex) followed immediately
+-- by WowQuestAPI.QuestLog_Update(). These two calls are always used together;
+-- this is the canonical two-call sequence.
+function AQL:SetQuestLogSelection(logIndex)
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] SetQuestLogSelection: logIndex=" .. tostring(logIndex) .. self.RESET)
+    end
+    WowQuestAPI.QuestLog_SetSelection(logIndex)
+    WowQuestAPI.QuestLog_Update()
+end
+
+-- ExpandQuestLogHeader(logIndex)
+-- Expands the collapsed zone header at logIndex.
+-- Verifies the entry is a header before acting; emits a normal-level debug
+-- message and returns without expanding if it is not.
+-- Emits a verbose debug message on successful expansion.
+function AQL:ExpandQuestLogHeader(logIndex)
+    local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
+    if not isHeader then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ExpandQuestLogHeader: logIndex=" .. tostring(logIndex) .. " is not a header — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.ExpandQuestHeader(logIndex)
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ExpandQuestLogHeader: expanded header at logIndex=" .. tostring(logIndex) .. self.RESET)
+    end
+end
+
+-- CollapseQuestLogHeader(logIndex)
+-- Collapses the zone header at logIndex.
+-- Verifies the entry is a header before acting; emits a normal-level debug
+-- message and returns without collapsing if it is not.
+-- Emits a verbose debug message on successful collapse.
+function AQL:CollapseQuestLogHeader(logIndex)
+    local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
+    if not isHeader then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] CollapseQuestLogHeader: logIndex=" .. tostring(logIndex) .. " is not a header — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.CollapseQuestHeader(logIndex)
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] CollapseQuestLogHeader: collapsed header at logIndex=" .. tostring(logIndex) .. self.RESET)
+    end
+end
+
+-- GetQuestDifficultyColor(level) → {r, g, b}
+-- Returns a color table for the given quest level relative to the player.
+function AQL:GetQuestDifficultyColor(level)
+    return WowQuestAPI.GetQuestDifficultyColor(level)
+end
+
+-- GetQuestLogIndex(questID) → logIndex or nil
+-- Returns the 1-based quest log index for a questID, or nil if not found.
+-- Returns nil for quests under collapsed zone headers — they are invisible
+-- to the WoW API even though the quest is in the player's log; expand the
+-- header first to make the quest visible.
+-- Zone header rows carry no questID and are never matched.
+function AQL:GetQuestLogIndex(questID)
+    return WowQuestAPI.GetQuestLogIndex(questID)
+end
+
+------------------------------------------------------------------------
+-- Quest Log APIs — Compound ByIndex
+-- Multi-step operations taking logIndex. Delegate down to thin wrappers
+-- and WowQuestAPI. All iteration uses WowQuestAPI.GetNumQuestLogEntries()
+-- and WowQuestAPI.GetQuestLogTitle(i).
+------------------------------------------------------------------------
+
+-- IsQuestIndexShareable(logIndex) → bool
+-- Returns true if the quest at logIndex can be shared with party members.
+-- Verifies the entry is a quest row (not a header); returns false with a
+-- normal-level debug message if it is a header.
+-- Saves and restores the current quest log selection so the quest log's
+-- visual state is unchanged after the call.
+function AQL:IsQuestIndexShareable(logIndex)
+    local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
+    if isHeader then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] IsQuestIndexShareable: logIndex=" .. tostring(logIndex) .. " is a header row — returning false" .. self.RESET)
+        end
+        return false
+    end
+    local saved = WowQuestAPI.GetQuestLogSelection()
+    WowQuestAPI.SelectQuestLogEntry(logIndex)
+    local result = WowQuestAPI.GetQuestLogPushable()
+    WowQuestAPI.SelectQuestLogEntry(saved)
+    return result
+end
+
+-- SelectAndShowQuestLogEntryByIndex(logIndex)
+-- Selects the entry at logIndex and refreshes the quest log display.
+-- Delegates to SetQuestLogSelection (which emits a verbose debug message).
+function AQL:SelectAndShowQuestLogEntryByIndex(logIndex)
+    self:SetQuestLogSelection(logIndex)
+end
+
+-- OpenQuestLogByIndex(logIndex)
+-- Shows the quest log frame and navigates to logIndex.
+function AQL:OpenQuestLogByIndex(logIndex)
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] OpenQuestLogByIndex: showing quest log, navigating to logIndex=" .. tostring(logIndex) .. self.RESET)
+    end
+    WowQuestAPI.ShowQuestLog()
+    self:SelectAndShowQuestLogEntryByIndex(logIndex)
+end
+
+-- ToggleQuestLogByIndex(logIndex)
+-- If the quest log is shown and logIndex is the current selection, hides
+-- the quest log. Otherwise opens the quest log and navigates to logIndex.
+-- On the hide path: emits a verbose debug message.
+-- On the open path: delegates to OpenQuestLogByIndex (which emits its own
+-- verbose message — no separate message from ToggleQuestLogByIndex).
+function AQL:ToggleQuestLogByIndex(logIndex)
+    if WowQuestAPI.IsQuestLogShown() and WowQuestAPI.GetQuestLogSelection() == logIndex then
+        if self.debug == "verbose" then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ToggleQuestLogByIndex: quest log is shown and logIndex=" .. tostring(logIndex) .. " is selected — hiding" .. self.RESET)
+        end
+        WowQuestAPI.HideQuestLog()
+    else
+        self:OpenQuestLogByIndex(logIndex)
+    end
+end
+
+-- GetSelectedQuestId() → questID or nil
+-- Returns the questID of the currently selected quest log entry.
+-- Returns nil if nothing is selected (logIndex = 0) or if the selected
+-- entry is a zone header row.
+function AQL:GetSelectedQuestId()
+    local logIndex = WowQuestAPI.GetQuestLogSelection()
+    if not logIndex or logIndex == 0 then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] GetSelectedQuestId: no entry selected — returning nil" .. self.RESET)
+        end
+        return nil
+    end
+    local _, _, _, isHeader, _, _, _, questID = WowQuestAPI.GetQuestLogTitle(logIndex)
+    if isHeader or not questID then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] GetSelectedQuestId: selected entry logIndex=" .. tostring(logIndex) .. " is a zone header — returning nil" .. self.RESET)
+        end
+        return nil
+    end
+    return questID
+end
+
+-- GetQuestLogEntries() → array
+-- Returns a structured array of all visible quest log entries in display order.
+-- Each element: { logIndex=N, isHeader=bool, title="string",
+--                 questID=N_or_nil, isCollapsed=bool_or_nil }
+-- For quest rows (non-headers): isCollapsed is nil.
+-- For header rows: questID is nil.
+-- Emits no debug message — pure data query.
+function AQL:GetQuestLogEntries()
+    local entries = {}
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local title, _, _, isHeader, isCollapsed, _, _, questID = WowQuestAPI.GetQuestLogTitle(i)
+        if title then
+            table.insert(entries, {
+                logIndex    = i,
+                isHeader    = isHeader == true,
+                title       = title,
+                questID     = (not isHeader) and questID or nil,
+                isCollapsed = isHeader and (isCollapsed == true) or nil,
+            })
+        end
+    end
+    return entries
+end
+
+-- GetQuestLogZones() → array of {name, isCollapsed}
+-- Returns an ordered array of zone header entries in the quest log.
+-- Each element: { name="string", isCollapsed=bool }
+-- Useful for capturing collapsed state before bulk-expanding, then restoring:
+--   local zones = AQL:GetQuestLogZones()
+--   AQL:ExpandAllQuestLogHeaders()
+--   -- ... do work ...
+--   for _, z in ipairs(zones) do
+--       if z.isCollapsed then AQL:CollapseQuestLogZoneByName(z.name) end
+--   end
+-- Emits no debug message — pure data query.
+function AQL:GetQuestLogZones()
+    local zones = {}
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local title, _, _, isHeader, isCollapsed = WowQuestAPI.GetQuestLogTitle(i)
+        if title and isHeader then
+            table.insert(zones, { name = title, isCollapsed = isCollapsed == true })
+        end
+    end
+    return zones
+end
+
+-- ExpandAllQuestLogHeaders()
+-- Expands all currently collapsed zone headers in the quest log.
+-- Emits a verbose debug message listing the count of headers expanded.
+function AQL:ExpandAllQuestLogHeaders()
+    local toExpand = {}
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local _, _, _, isHeader, isCollapsed = WowQuestAPI.GetQuestLogTitle(i)
+        if isHeader and isCollapsed then
+            table.insert(toExpand, i)
+        end
+    end
+    -- Expand back-to-front to preserve earlier indices.
+    for k = #toExpand, 1, -1 do
+        WowQuestAPI.ExpandQuestHeader(toExpand[k])
+    end
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ExpandAllQuestLogHeaders: expanded " .. tostring(#toExpand) .. " headers" .. self.RESET)
+    end
+end
+
+-- CollapseAllQuestLogHeaders()
+-- Collapses all zone headers in the quest log.
+-- Emits a verbose debug message listing the count of headers collapsed.
+function AQL:CollapseAllQuestLogHeaders()
+    local toCollapse = {}
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(i)
+        if isHeader then
+            table.insert(toCollapse, i)
+        end
+    end
+    -- Collapse back-to-front to preserve earlier indices.
+    for k = #toCollapse, 1, -1 do
+        WowQuestAPI.CollapseQuestHeader(toCollapse[k])
+    end
+    if self.debug == "verbose" then
+        DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] CollapseAllQuestLogHeaders: collapsed " .. tostring(#toCollapse) .. " headers" .. self.RESET)
+    end
+end
+
+-- Local helper: finds the logIndex of a zone header by name.
+-- Returns logIndex, isCollapsed  — or nil, nil if not found.
+local function findZoneHeader(zoneName)
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
+    for i = 1, numEntries do
+        local title, _, _, isHeader, isCollapsed = WowQuestAPI.GetQuestLogTitle(i)
+        if title and isHeader and title == zoneName then
+            return i, isCollapsed == true
+        end
+    end
+    return nil, nil
+end
+
+-- ExpandQuestLogZoneByName(zoneName)
+-- Finds the zone header matching zoneName and expands it.
+-- No-op with a normal-level debug message if zoneName is not found.
+function AQL:ExpandQuestLogZoneByName(zoneName)
+    local logIndex = findZoneHeader(zoneName)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ExpandQuestLogZoneByName: zone \"" .. tostring(zoneName) .. "\" not found in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.ExpandQuestHeader(logIndex)
+end
+
+-- CollapseQuestLogZoneByName(zoneName)
+-- Finds the zone header matching zoneName and collapses it.
+-- No-op with a normal-level debug message if zoneName is not found.
+function AQL:CollapseQuestLogZoneByName(zoneName)
+    local logIndex = findZoneHeader(zoneName)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] CollapseQuestLogZoneByName: zone \"" .. tostring(zoneName) .. "\" not found in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.CollapseQuestHeader(logIndex)
+end
+
+-- ToggleQuestLogZoneByName(zoneName)
+-- Finds the zone header matching zoneName; expands if collapsed, collapses
+-- if expanded.
+-- No-op with a normal-level debug message if zoneName is not found.
+function AQL:ToggleQuestLogZoneByName(zoneName)
+    local logIndex, isCollapsed = findZoneHeader(zoneName)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ToggleQuestLogZoneByName: zone \"" .. tostring(zoneName) .. "\" not found in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    if isCollapsed then
+        WowQuestAPI.ExpandQuestHeader(logIndex)
+    else
+        WowQuestAPI.CollapseQuestHeader(logIndex)
+    end
+end
+
+-- IsQuestLogZoneCollapsed(zoneName) → bool or nil
+-- Returns true if the zone header matching zoneName is collapsed,
+-- false if expanded, nil if not found.
+-- Emits a normal-level debug message when zoneName is not found.
+function AQL:IsQuestLogZoneCollapsed(zoneName)
+    local logIndex, isCollapsed = findZoneHeader(zoneName)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] IsQuestLogZoneCollapsed: zone \"" .. tostring(zoneName) .. "\" not found in quest log — returning nil" .. self.RESET)
+        end
+        return nil
+    end
+    return isCollapsed
+end
+
+------------------------------------------------------------------------
+-- Quest Log APIs — Compound ById
+-- Same operations as ByIndex but accept questID. Internally resolve
+-- questID → logIndex via WowQuestAPI.GetQuestLogIndex.
+-- If the questID is not in the player's active quest log (including quests
+-- under collapsed headers), all ById methods are silent no-ops:
+-- bool methods return false, void methods do nothing.
+-- A normal-level debug message is emitted so consumers can observe this.
+------------------------------------------------------------------------
+
+-- IsQuestIdShareable(questID) → bool
+-- Returns true if the quest with questID can be shared with party members.
+-- Returns false with a normal-level debug message if questID is not in
+-- the active quest log.
+function AQL:IsQuestIdShareable(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] IsQuestIdShareable: questID=" .. tostring(questID) .. " not in quest log — returning false" .. self.RESET)
+        end
+        return false
+    end
+    return self:IsQuestIndexShareable(logIndex)
+end
+
+-- SelectAndShowQuestLogEntryById(questID)
+-- Selects questID in the quest log and refreshes the display.
+-- No-op with a normal-level debug message if questID is not in the log.
+function AQL:SelectAndShowQuestLogEntryById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] SelectAndShowQuestLogEntryById: questID=" .. tostring(questID) .. " not in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    self:SelectAndShowQuestLogEntryByIndex(logIndex)
+end
+
+-- OpenQuestLogById(questID)
+-- Opens the quest log and navigates to questID.
+-- No-op with a normal-level debug message if questID is not in the log.
+function AQL:OpenQuestLogById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] OpenQuestLogById: questID=" .. tostring(questID) .. " not in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    self:OpenQuestLogByIndex(logIndex)
+end
+
+-- ToggleQuestLogById(questID)
+-- Toggles the quest log open/closed for questID.
+-- No-op with a normal-level debug message if questID is not in the log.
+function AQL:ToggleQuestLogById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] ToggleQuestLogById: questID=" .. tostring(questID) .. " not in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    self:ToggleQuestLogByIndex(logIndex)
 end
 
 ------------------------------------------------------------------------
