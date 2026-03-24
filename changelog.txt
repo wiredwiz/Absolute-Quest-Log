@@ -1,6 +1,11 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.2.2 (March 2026)
+---------------------------
+- Added addon logo for addon screen
+
+
 Version 2.2.1 (March 2026)
 ---------------------------
 - Added AQL.Event constant table for all 12 AQL callback event strings.
