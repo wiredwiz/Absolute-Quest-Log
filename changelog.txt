@@ -1,6 +1,17 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.2.7 (March 2026)
+---------------------------
+- Bug fix: replaced cursor-detection logic with a debounce on every
+  QUEST_LOG_UPDATE. Each call schedules a 50ms C_Timer; only the latest
+  timer fires the rebuild. Bag operations produce 2 rapid events (one
+  with intermediate low count, one correct) — both are swallowed, and
+  one settled rebuild runs after the quiet window. Cursor detection
+  failed because CursorHasItem() returns false throughout certain
+  combine operations, so the guard never activated.
+
+
 Version 2.2.6 (March 2026)
 ---------------------------
 - Bug fix: replaced skip-one-event with a 500 ms settle timer. After the cursor

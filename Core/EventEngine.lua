@@ -4,9 +4,15 @@
 -- diffs old vs. new state at quest and objective granularity, and fires
 -- AQL callbacks via CallbackHandler.
 --
--- Re-entrancy guard: if QUEST_LOG_UPDATE fires while a diff is already running,
--- the second call is silently dropped. This is a known limitation — in normal
--- gameplay the next natural event will catch any missed state.
+-- Debounce: bag stack operations fire two QUEST_LOG_UPDATE events back-to-back
+-- (one with an intermediate low count, one with the settled correct count).
+-- Every call increments debounceGeneration and schedules a 50 ms timer; only the
+-- timer whose generation still matches runs the rebuild. Rapid bursts collapse to
+-- a single rebuild against the settled state. Legitimate events (kills, accepts,
+-- turn-ins) are delayed at most 50 ms, which is imperceptible.
+--
+-- Re-entrancy: if a rebuild triggers a QUEST_LOG_UPDATE, the new call schedules
+-- a deferred rebuild rather than being silently dropped.
 
 local AQL = LibStub("AbsoluteQuestLog-1.0", true)
 if not AQL then return end
@@ -18,11 +24,10 @@ AQL.EventEngine = EventEngine
 -- QuestCache reads during _buildEntry to populate QuestInfo.failReason.
 -- (QuestCache.failedSet is initialized in QuestCache.lua; we just write to it.)
 
-EventEngine.diffInProgress   = false
-EventEngine.initialized      = false
-EventEngine.pendingTurnIn    = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
-EventEngine.cursorHadItem         = false  -- true from when cursor picks up an item until the 500 ms settle timer fires
-EventEngine.bagSettleTimerPending = false  -- true while the settle timer is scheduled; prevents duplicate timers
+EventEngine.diffInProgress      = false
+EventEngine.initialized         = false
+EventEngine.pendingTurnIn       = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
+EventEngine.debounceGeneration  = 0   -- incremented on every QUEST_LOG_UPDATE; timer fires only when still current
 
 -- Hidden event frame.
 local frame = CreateFrame("Frame")
@@ -336,59 +341,32 @@ local function handleQuestLogUpdate()
         return
     end
 
-    -- Bag-operation guard: cursor-item placement produces unstable intermediate counts.
-    --
-    -- When the player picks up items, quest item counts temporarily read lower because
-    -- cursor contents are not counted. We set cursorHadItem and suppress all rebuilds.
-    --
-    -- When the cursor empties, WoW fires one or two QUEST_LOG_UPDATE events before the
-    -- destination slot is fully settled. We keep cursorHadItem = true (suppressing those
-    -- events) and schedule a single 500 ms timer. The timer fires after all intermediate
-    -- events have passed, clears the flag, and triggers a fresh rebuild against the fully
-    -- settled bag state. The flag is only cleared inside the timer callback so that any
-    -- events arriving during the wait window are also suppressed.
-    if CursorHasItem() then
-        EventEngine.cursorHadItem = true
-        if AQL.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(
-                AQL.DBG .. "[AQL] handleQuestLogUpdate: suppressed (cursor has item)" .. AQL.RESET)
-        end
-        return
-    end
+    EventEngine.debounceGeneration = EventEngine.debounceGeneration + 1
+    local gen = EventEngine.debounceGeneration
 
-    if EventEngine.cursorHadItem then
-        if not EventEngine.bagSettleTimerPending then
-            EventEngine.bagSettleTimerPending = true
-            C_Timer.After(0.5, function()
-                EventEngine.cursorHadItem         = false
-                EventEngine.bagSettleTimerPending = false
-                handleQuestLogUpdate()
-            end)
-        end
-        if AQL.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(
-                AQL.DBG .. "[AQL] handleQuestLogUpdate: suppressed (waiting for bag to settle)" .. AQL.RESET)
-        end
-        return
-    end
+    C_Timer.After(0.05, function()
+        if EventEngine.debounceGeneration ~= gen then return end  -- a newer event came in; this rebuild is stale
 
-    -- Belt-and-suspenders: re-attempt provider selection if still on NullProvider.
-    -- tryUpgradeProvider handles the common case via C_Timer; this is a fallback
-    -- in case the upgrade window was missed. One comparison per rebuild — no cost.
-    if AQL.provider == AQL.NullProvider then
-        local provider, providerName = selectProvider()
-        if provider ~= AQL.NullProvider then
-            AQL.provider = provider
-            if AQL.debug then
-                DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Provider upgraded (inline): " .. tostring(providerName) .. AQL.RESET)
+        if EventEngine.diffInProgress then return end
+
+        -- Belt-and-suspenders: re-attempt provider selection if still on NullProvider.
+        -- tryUpgradeProvider handles the common case via C_Timer; this is a fallback
+        -- in case the upgrade window was missed. One comparison per rebuild — no cost.
+        if AQL.provider == AQL.NullProvider then
+            local provider, providerName = selectProvider()
+            if provider ~= AQL.NullProvider then
+                AQL.provider = provider
+                if AQL.debug then
+                    DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Provider upgraded (inline): " .. tostring(providerName) .. AQL.RESET)
+                end
             end
         end
-    end
 
-    local oldCache = AQL.QuestCache:Rebuild()
-    if oldCache == nil then return end  -- Rebuild failed (re-entrant guard from QuestCache side)
+        local oldCache = AQL.QuestCache:Rebuild()
+        if oldCache == nil then return end
 
-    runDiff(oldCache)
+        runDiff(oldCache)
+    end)
 end
 
 ------------------------------------------------------------------------

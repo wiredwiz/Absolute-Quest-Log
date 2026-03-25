@@ -308,6 +308,9 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.2.7 (March 2026)
+- Bug fix: replaced all cursor-detection logic (`cursorHadItem`, `bagSettleTimerPending`) with a simple debounce on every `QUEST_LOG_UPDATE`. Each call increments `debounceGeneration` and schedules a 50 ms `C_Timer`; only the timer whose generation still matches fires the rebuild. Bag operations produce 2 rapid events (intermediate low count, then correct count) — both are swallowed by the debounce, and a single settled rebuild runs after the 50 ms quiet window. The cursor-detection approach failed because `CursorHasItem()` returns `false` throughout certain operations (e.g. combining back to original slot), so `cursorHadItem` was never set and intermediate events leaked through.
+
 ### Version 2.2.6 (March 2026)
 - Bug fix: replaced the skip-one-event approach with a 500 ms settle timer. When the cursor empties, `cursorHadItem` is now held `true` until the timer fires — suppressing all intermediate `QUEST_LOG_UPDATE` events during the window. The timer callback clears the flag and triggers a fresh rebuild against the fully settled bag state. A `bagSettleTimerPending` guard prevents duplicate timers. This handles cases where WoW fires two events after placement (one with the intermediate low count, one with the correct count).
 
