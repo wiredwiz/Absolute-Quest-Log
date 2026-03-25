@@ -334,6 +334,18 @@ local function handleQuestLogUpdate()
         return
     end
 
+    -- If the player has an item on the cursor, this update is due to a bag
+    -- operation in progress. The objective count is an unstable intermediate.
+    -- Defer until cursor is empty; the next QUEST_LOG_UPDATE (fired when items
+    -- are placed) processes normally with a net-zero diff.
+    if CursorHasItem() then
+        if AQL.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(
+                AQL.DBG .. "[AQL] handleQuestLogUpdate: deferred (cursor has item)" .. AQL.RESET)
+        end
+        return
+    end
+
     -- Belt-and-suspenders: re-attempt provider selection if still on NullProvider.
     -- tryUpgradeProvider handles the common case via C_Timer; this is a fallback
     -- in case the upgrade window was missed. One comparison per rebuild — no cost.
