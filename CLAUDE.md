@@ -308,6 +308,9 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.2.8 (March 2026)
+- Bug fix: increased the debounce timer from 50 ms to 500 ms. The two post-placement `QUEST_LOG_UPDATE` events from bag stack operations are separated by a server round-trip (up to ~400 ms depending on latency). The 50 ms window was too short to batch both events, so the first timer fired between them with the intermediate low count. 500 ms covers the full round-trip, ensuring both events collapse into one rebuild against the settled state.
+
 ### Version 2.2.7 (March 2026)
 - Bug fix: replaced all cursor-detection logic (`cursorHadItem`, `bagSettleTimerPending`) with a simple debounce on every `QUEST_LOG_UPDATE`. Each call increments `debounceGeneration` and schedules a 50 ms `C_Timer`; only the timer whose generation still matches fires the rebuild. Bag operations produce 2 rapid events (intermediate low count, then correct count) — both are swallowed by the debounce, and a single settled rebuild runs after the 50 ms quiet window. The cursor-detection approach failed because `CursorHasItem()` returns `false` throughout certain operations (e.g. combining back to original slot), so `cursorHadItem` was never set and intermediate events leaked through.
 

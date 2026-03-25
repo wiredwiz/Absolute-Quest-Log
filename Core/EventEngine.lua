@@ -6,10 +6,11 @@
 --
 -- Debounce: bag stack operations fire two QUEST_LOG_UPDATE events back-to-back
 -- (one with an intermediate low count, one with the settled correct count).
--- Every call increments debounceGeneration and schedules a 50 ms timer; only the
+-- Every call increments debounceGeneration and schedules a 500 ms timer; only the
 -- timer whose generation still matches runs the rebuild. Rapid bursts collapse to
--- a single rebuild against the settled state. Legitimate events (kills, accepts,
--- turn-ins) are delayed at most 50 ms, which is imperceptible.
+-- a single rebuild against the settled state. The 500 ms window covers the full
+-- server round-trip for bag operations, which can produce two QUEST_LOG_UPDATE
+-- events separated by up to ~400 ms depending on server latency.
 --
 -- Re-entrancy: if a rebuild triggers a QUEST_LOG_UPDATE, the new call schedules
 -- a deferred rebuild rather than being silently dropped.
@@ -344,7 +345,7 @@ local function handleQuestLogUpdate()
     EventEngine.debounceGeneration = EventEngine.debounceGeneration + 1
     local gen = EventEngine.debounceGeneration
 
-    C_Timer.After(0.05, function()
+    C_Timer.After(0.5, function()
         if EventEngine.debounceGeneration ~= gen then return end  -- a newer event came in; this rebuild is stale
 
         if EventEngine.diffInProgress then return end

@@ -1,6 +1,15 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.2.8 (March 2026)
+---------------------------
+- Bug fix: increased debounce timer from 50ms to 500ms. The two
+  post-placement QUEST_LOG_UPDATE events are separated by a server
+  round-trip (~400ms max). The 50ms window fired between them, processing
+  the intermediate low count. 500ms batches both events into one rebuild
+  against the settled state.
+
+
 Version 2.2.7 (March 2026)
 ---------------------------
 - Bug fix: replaced cursor-detection logic with a debounce on every
