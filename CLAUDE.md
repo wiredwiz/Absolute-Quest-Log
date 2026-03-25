@@ -308,6 +308,12 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.2.3 (March 2026)
+- Bug fix: `handleQuestLogUpdate()` now returns early when `CursorHasItem()` is true, suppressing false `AQL_OBJECTIVE_REGRESSED` / `AQL_OBJECTIVE_PROGRESSED` / `AQL_OBJECTIVE_COMPLETED` callbacks that fired when the player picked up bag items (e.g., splitting a stack of quest collectibles). The next `QUEST_LOG_UPDATE` fires after items are placed and sees a net-zero diff. Eliminates the need for workaround debouncing in SocialQuest and other AQL consumers.
+
+### Version 2.2.2 (March 2026)
+- Added addon logo for addon screen.
+
 ### Version 2.2.1 (March 2026)
 - Added `AQL.Event` enumeration constant table for all 12 AQL callback event strings (`QuestAccepted`, `QuestAbandoned`, `QuestCompleted`, `QuestFinished`, `QuestFailed`, `QuestTracked`, `QuestUntracked`, `ObjectiveProgressed`, `ObjectiveCompleted`, `ObjectiveRegressed`, `ObjectiveFailed`, `UnitQuestLogChanged`); all raw `"AQL_*"` string literals in `EventEngine.lua` replaced with constants
 - Replaced `GetQuestLogZoneNames()` (returned array of strings) with `GetQuestLogZones()` returning `{name, isCollapsed}` entries per zone header, enabling save/restore of collapsed state around bulk operations

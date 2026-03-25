@@ -1,6 +1,17 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.2.3 (March 2026)
+---------------------------
+- Bug fix: handleQuestLogUpdate() now guards against QUEST_LOG_UPDATE events fired
+  while the player has an item on the cursor (e.g., splitting or moving bag stacks
+  of quest collectibles). The objective count during these operations represents an
+  unstable intermediate state. AQL defers the cache rebuild until the cursor is empty;
+  the next event sees a net-zero diff and fires no callbacks. Eliminates false
+  AQL_OBJECTIVE_REGRESSED, AQL_OBJECTIVE_PROGRESSED, and AQL_OBJECTIVE_COMPLETED
+  events caused by bag operations.
+
+
 Version 2.2.2 (March 2026)
 ---------------------------
 - Added addon logo for addon screen
