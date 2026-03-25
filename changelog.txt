@@ -1,6 +1,15 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.2.4 (March 2026)
+---------------------------
+- Bug fix: false regression/progression when dropping split quest items into an
+  empty bag slot. WoW fires QUEST_LOG_UPDATE after cursor empties but before the
+  destination slot is counted. Added one-frame settle defer (C_Timer.After(0))
+  triggered by the cursor-empty transition, so the rebuild always sees the final
+  correct count. Placing into an existing stack is unaffected.
+
+
 Version 2.2.3 (March 2026)
 ---------------------------
 - Bug fix: handleQuestLogUpdate() now guards against QUEST_LOG_UPDATE events fired

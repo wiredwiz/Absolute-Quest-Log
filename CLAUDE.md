@@ -308,6 +308,9 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.2.4 (March 2026)
+- Bug fix: extended the cursor/bag guard in `handleQuestLogUpdate()` to also handle the case where items are dropped into an **empty** bag slot. When placing into an empty slot, WoW fires `QUEST_LOG_UPDATE` after the cursor empties but before the destination slot is counted, causing a false `AQL_OBJECTIVE_REGRESSED` immediately followed by `AQL_OBJECTIVE_PROGRESSED`. Added `EventEngine.cursorHadItem` flag: set when `CursorHasItem()` is true, cleared on the first post-cursor event with a one-frame `C_Timer.After(0)` defer so the bag fully settles before rebuilding. Placing into an existing stack is atomic (no intermediate event) and is unaffected.
+
 ### Version 2.2.3 (March 2026)
 - Bug fix: `handleQuestLogUpdate()` now returns early when `CursorHasItem()` is true, suppressing false `AQL_OBJECTIVE_REGRESSED` / `AQL_OBJECTIVE_PROGRESSED` / `AQL_OBJECTIVE_COMPLETED` callbacks that fired when the player picked up bag items (e.g., splitting a stack of quest collectibles). The next `QUEST_LOG_UPDATE` fires after items are placed and sees a net-zero diff. Eliminates the need for workaround debouncing in SocialQuest and other AQL consumers.
 
