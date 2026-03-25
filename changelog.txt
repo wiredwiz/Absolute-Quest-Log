@@ -3,63 +3,15 @@ AbsoluteQuestLog-1.0 Changelog
 
 Version 2.2.8 (March 2026)
 ---------------------------
-- Bug fix: increased debounce timer from 50ms to 500ms. The two
-  post-placement QUEST_LOG_UPDATE events are separated by a server
-  round-trip (~400ms max). The 50ms window fired between them, processing
-  the intermediate low count. 500ms batches both events into one rebuild
-  against the settled state.
-
-
-Version 2.2.7 (March 2026)
----------------------------
-- Bug fix: replaced cursor-detection logic with a debounce on every
-  QUEST_LOG_UPDATE. Each call schedules a 50ms C_Timer; only the latest
-  timer fires the rebuild. Bag operations produce 2 rapid events (one
-  with intermediate low count, one correct) — both are swallowed, and
-  one settled rebuild runs after the quiet window. Cursor detection
-  failed because CursorHasItem() returns false throughout certain
-  combine operations, so the guard never activated.
-
-
-Version 2.2.6 (March 2026)
----------------------------
-- Bug fix: replaced skip-one-event with a 500 ms settle timer. After the cursor
-  empties, cursorHadItem stays true (suppressing all intermediate events) until
-  the timer fires. The timer callback clears the flag and rebuilds against the
-  fully settled bag state. Handles cases where WoW fires two post-placement
-  events (one with intermediate low count, one with correct count). A
-  bagSettleTimerPending guard prevents duplicate timers.
-
-
-Version 2.2.5 (March 2026)
----------------------------
-- Bug fix: false regression/progression still fired after 2.2.4. The
-  C_Timer.After(0) approach fired too early — the timer runs at the end of Frame
-  N, but the bag-settle QUEST_LOG_UPDATE arrives on Frame N+1, so the timer
-  rebuild always read the intermediate count. Fix: skip exactly the first
-  QUEST_LOG_UPDATE after cursor empties and let the next natural event rebuild
-  with the correct settled count. Affects all placement types (empty slot and
-  existing stack).
-
-
-Version 2.2.4 (March 2026)
----------------------------
-- Bug fix: false regression/progression when dropping split quest items into an
-  empty bag slot. WoW fires QUEST_LOG_UPDATE after cursor empties but before the
-  destination slot is counted. Added one-frame settle defer (C_Timer.After(0))
-  triggered by the cursor-empty transition, so the rebuild always sees the final
-  correct count. Placing into an existing stack is unaffected.
-
-
-Version 2.2.3 (March 2026)
----------------------------
-- Bug fix: handleQuestLogUpdate() now guards against QUEST_LOG_UPDATE events fired
-  while the player has an item on the cursor (e.g., splitting or moving bag stacks
-  of quest collectibles). The objective count during these operations represents an
-  unstable intermediate state. AQL defers the cache rebuild until the cursor is empty;
-  the next event sees a net-zero diff and fires no callbacks. Eliminates false
-  AQL_OBJECTIVE_REGRESSED, AQL_OBJECTIVE_PROGRESSED, and AQL_OBJECTIVE_COMPLETED
-  events caused by bag operations.
+- Bug fix: splitting or combining stacks of quest items in your bags could
+  trigger false "objective regressed" and "objective progressed" callbacks
+  in addons that use AQL, even though your actual quest progress hadn't
+  changed. This happened because WoW fires two rapid quest update events
+  during these bag operations — one with a temporarily incorrect item count
+  and one with the correct count — and AQL was reacting to both. The fix
+  queues quest log rebuilds on a short delay so that both events settle
+  before any callbacks are fired, resulting in a net-zero change and no
+  false notifications.
 
 
 Version 2.2.2 (March 2026)

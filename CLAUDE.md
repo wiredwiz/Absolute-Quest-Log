@@ -309,22 +309,7 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ## Version History
 
 ### Version 2.2.8 (March 2026)
-- Bug fix: increased the debounce timer from 50 ms to 500 ms. The two post-placement `QUEST_LOG_UPDATE` events from bag stack operations are separated by a server round-trip (up to ~400 ms depending on latency). The 50 ms window was too short to batch both events, so the first timer fired between them with the intermediate low count. 500 ms covers the full round-trip, ensuring both events collapse into one rebuild against the settled state.
-
-### Version 2.2.7 (March 2026)
-- Bug fix: replaced all cursor-detection logic (`cursorHadItem`, `bagSettleTimerPending`) with a simple debounce on every `QUEST_LOG_UPDATE`. Each call increments `debounceGeneration` and schedules a 50 ms `C_Timer`; only the timer whose generation still matches fires the rebuild. Bag operations produce 2 rapid events (intermediate low count, then correct count) — both are swallowed by the debounce, and a single settled rebuild runs after the 50 ms quiet window. The cursor-detection approach failed because `CursorHasItem()` returns `false` throughout certain operations (e.g. combining back to original slot), so `cursorHadItem` was never set and intermediate events leaked through.
-
-### Version 2.2.6 (March 2026)
-- Bug fix: replaced the skip-one-event approach with a 500 ms settle timer. When the cursor empties, `cursorHadItem` is now held `true` until the timer fires — suppressing all intermediate `QUEST_LOG_UPDATE` events during the window. The timer callback clears the flag and triggers a fresh rebuild against the fully settled bag state. A `bagSettleTimerPending` guard prevents duplicate timers. This handles cases where WoW fires two events after placement (one with the intermediate low count, one with the correct count).
-
-### Version 2.2.5 (March 2026)
-- Bug fix: replaced `C_Timer.After(0, handleQuestLogUpdate)` in the cursor/bag guard with a plain `return`. The timer approach fired too early — `C_Timer` runs at the end of Frame N's timer pass, but the settling `QUEST_LOG_UPDATE` arrives on Frame N+1, so the timer rebuild always saw the intermediate count and fired false `AQL_OBJECTIVE_REGRESSED` + `AQL_OBJECTIVE_PROGRESSED`. The correct approach skips exactly the first `QUEST_LOG_UPDATE` after the cursor empties; the next natural event runs the rebuild with the fully settled count. Affects all placement types (empty slot and existing stack).
-
-### Version 2.2.4 (March 2026)
-- Bug fix: extended the cursor/bag guard in `handleQuestLogUpdate()` to also handle the case where items are dropped into an **empty** bag slot. When placing into an empty slot, WoW fires `QUEST_LOG_UPDATE` after the cursor empties but before the destination slot is counted, causing a false `AQL_OBJECTIVE_REGRESSED` immediately followed by `AQL_OBJECTIVE_PROGRESSED`. Added `EventEngine.cursorHadItem` flag: set when `CursorHasItem()` is true, cleared on the first post-cursor event with a one-frame `C_Timer.After(0)` defer so the bag fully settles before rebuilding. Placing into an existing stack is atomic (no intermediate event) and is unaffected.
-
-### Version 2.2.3 (March 2026)
-- Bug fix: `handleQuestLogUpdate()` now returns early when `CursorHasItem()` is true, suppressing false `AQL_OBJECTIVE_REGRESSED` / `AQL_OBJECTIVE_PROGRESSED` / `AQL_OBJECTIVE_COMPLETED` callbacks that fired when the player picked up bag items (e.g., splitting a stack of quest collectibles). The next `QUEST_LOG_UPDATE` fires after items are placed and sees a net-zero diff. Eliminates the need for workaround debouncing in SocialQuest and other AQL consumers.
+- Bug fix: splitting or combining stacks of quest items in bags caused false `AQL_OBJECTIVE_REGRESSED` and `AQL_OBJECTIVE_PROGRESSED` callbacks, even though actual quest progress had not changed. WoW fires two `QUEST_LOG_UPDATE` events during these operations — one with a temporarily incorrect item count, one with the correct count — and AQL was reacting to both. Replaced all cursor-detection logic with a 500 ms debounce: every `QUEST_LOG_UPDATE` call increments `debounceGeneration` and schedules a `C_Timer`; only the timer whose generation still matches fires the rebuild. Both bag-operation events collapse into one rebuild against the settled state, producing a net-zero diff and no false callbacks. The 500 ms window covers the full server round-trip latency between the two events. Cursor-based detection (`CursorHasItem()`) was never viable for this scenario because the cursor is already empty by the time WoW delivers the events.
 
 ### Version 2.2.2 (March 2026)
 - Added addon logo for addon screen.
