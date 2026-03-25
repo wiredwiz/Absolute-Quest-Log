@@ -1,6 +1,19 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.2.8 (March 2026)
+---------------------------
+- Bug fix: splitting or combining stacks of quest items in your bags could
+  trigger false "objective regressed" and "objective progressed" callbacks
+  in addons that use AQL, even though your actual quest progress hadn't
+  changed. This happened because WoW fires two rapid quest update events
+  during these bag operations — one with a temporarily incorrect item count
+  and one with the correct count — and AQL was reacting to both. The fix
+  queues quest log rebuilds on a short delay so that both events settle
+  before any callbacks are fired, resulting in a net-zero change and no
+  false notifications.
+
+
 Version 2.2.2 (March 2026)
 ---------------------------
 - Added addon logo for addon screen

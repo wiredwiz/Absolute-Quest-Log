@@ -4,9 +4,16 @@
 -- diffs old vs. new state at quest and objective granularity, and fires
 -- AQL callbacks via CallbackHandler.
 --
--- Re-entrancy guard: if QUEST_LOG_UPDATE fires while a diff is already running,
--- the second call is silently dropped. This is a known limitation — in normal
--- gameplay the next natural event will catch any missed state.
+-- Debounce: bag stack operations fire two QUEST_LOG_UPDATE events back-to-back
+-- (one with an intermediate low count, one with the settled correct count).
+-- Every call increments debounceGeneration and schedules a 500 ms timer; only the
+-- timer whose generation still matches runs the rebuild. Rapid bursts collapse to
+-- a single rebuild against the settled state. The 500 ms window covers the full
+-- server round-trip for bag operations, which can produce two QUEST_LOG_UPDATE
+-- events separated by up to ~400 ms depending on server latency.
+--
+-- Re-entrancy: if a rebuild triggers a QUEST_LOG_UPDATE, the new call schedules
+-- a deferred rebuild rather than being silently dropped.
 
 local AQL = LibStub("AbsoluteQuestLog-1.0", true)
 if not AQL then return end
@@ -18,9 +25,10 @@ AQL.EventEngine = EventEngine
 -- QuestCache reads during _buildEntry to populate QuestInfo.failReason.
 -- (QuestCache.failedSet is initialized in QuestCache.lua; we just write to it.)
 
-EventEngine.diffInProgress   = false
-EventEngine.initialized      = false
-EventEngine.pendingTurnIn    = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
+EventEngine.diffInProgress      = false
+EventEngine.initialized         = false
+EventEngine.pendingTurnIn       = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
+EventEngine.debounceGeneration  = 0   -- incremented on every QUEST_LOG_UPDATE; timer fires only when still current
 
 -- Hidden event frame.
 local frame = CreateFrame("Frame")
@@ -334,23 +342,32 @@ local function handleQuestLogUpdate()
         return
     end
 
-    -- Belt-and-suspenders: re-attempt provider selection if still on NullProvider.
-    -- tryUpgradeProvider handles the common case via C_Timer; this is a fallback
-    -- in case the upgrade window was missed. One comparison per rebuild — no cost.
-    if AQL.provider == AQL.NullProvider then
-        local provider, providerName = selectProvider()
-        if provider ~= AQL.NullProvider then
-            AQL.provider = provider
-            if AQL.debug then
-                DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Provider upgraded (inline): " .. tostring(providerName) .. AQL.RESET)
+    EventEngine.debounceGeneration = EventEngine.debounceGeneration + 1
+    local gen = EventEngine.debounceGeneration
+
+    C_Timer.After(0.5, function()
+        if EventEngine.debounceGeneration ~= gen then return end  -- a newer event came in; this rebuild is stale
+
+        if EventEngine.diffInProgress then return end
+
+        -- Belt-and-suspenders: re-attempt provider selection if still on NullProvider.
+        -- tryUpgradeProvider handles the common case via C_Timer; this is a fallback
+        -- in case the upgrade window was missed. One comparison per rebuild — no cost.
+        if AQL.provider == AQL.NullProvider then
+            local provider, providerName = selectProvider()
+            if provider ~= AQL.NullProvider then
+                AQL.provider = provider
+                if AQL.debug then
+                    DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Provider upgraded (inline): " .. tostring(providerName) .. AQL.RESET)
+                end
             end
         end
-    end
 
-    local oldCache = AQL.QuestCache:Rebuild()
-    if oldCache == nil then return end  -- Rebuild failed (re-entrant guard from QuestCache side)
+        local oldCache = AQL.QuestCache:Rebuild()
+        if oldCache == nil then return end
 
-    runDiff(oldCache)
+        runDiff(oldCache)
+    end)
 end
 
 ------------------------------------------------------------------------

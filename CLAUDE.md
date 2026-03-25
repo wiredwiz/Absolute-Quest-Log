@@ -308,6 +308,12 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.2.8 (March 2026)
+- Bug fix: splitting or combining stacks of quest items in bags caused false `AQL_OBJECTIVE_REGRESSED` and `AQL_OBJECTIVE_PROGRESSED` callbacks, even though actual quest progress had not changed. WoW fires two `QUEST_LOG_UPDATE` events during these operations — one with a temporarily incorrect item count, one with the correct count — and AQL was reacting to both. Replaced all cursor-detection logic with a 500 ms debounce: every `QUEST_LOG_UPDATE` call increments `debounceGeneration` and schedules a `C_Timer`; only the timer whose generation still matches fires the rebuild. Both bag-operation events collapse into one rebuild against the settled state, producing a net-zero diff and no false callbacks. The 500 ms window covers the full server round-trip latency between the two events. Cursor-based detection (`CursorHasItem()`) was never viable for this scenario because the cursor is already empty by the time WoW delivers the events.
+
+### Version 2.2.2 (March 2026)
+- Added addon logo for addon screen.
+
 ### Version 2.2.1 (March 2026)
 - Added `AQL.Event` enumeration constant table for all 12 AQL callback event strings (`QuestAccepted`, `QuestAbandoned`, `QuestCompleted`, `QuestFinished`, `QuestFailed`, `QuestTracked`, `QuestUntracked`, `ObjectiveProgressed`, `ObjectiveCompleted`, `ObjectiveRegressed`, `ObjectiveFailed`, `UnitQuestLogChanged`); all raw `"AQL_*"` string literals in `EventEngine.lua` replaced with constants
 - Replaced `GetQuestLogZoneNames()` (returned array of strings) with `GetQuestLogZones()` returning `{name, isCollapsed}` entries per zone header, enabling save/restore of collapsed state around bulk operations
