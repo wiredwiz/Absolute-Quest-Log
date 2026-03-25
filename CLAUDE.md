@@ -308,6 +308,9 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.2.6 (March 2026)
+- Bug fix: replaced the skip-one-event approach with a 500 ms settle timer. When the cursor empties, `cursorHadItem` is now held `true` until the timer fires — suppressing all intermediate `QUEST_LOG_UPDATE` events during the window. The timer callback clears the flag and triggers a fresh rebuild against the fully settled bag state. A `bagSettleTimerPending` guard prevents duplicate timers. This handles cases where WoW fires two events after placement (one with the intermediate low count, one with the correct count).
+
 ### Version 2.2.5 (March 2026)
 - Bug fix: replaced `C_Timer.After(0, handleQuestLogUpdate)` in the cursor/bag guard with a plain `return`. The timer approach fired too early — `C_Timer` runs at the end of Frame N's timer pass, but the settling `QUEST_LOG_UPDATE` arrives on Frame N+1, so the timer rebuild always saw the intermediate count and fired false `AQL_OBJECTIVE_REGRESSED` + `AQL_OBJECTIVE_PROGRESSED`. The correct approach skips exactly the first `QUEST_LOG_UPDATE` after the cursor empties; the next natural event runs the rebuild with the fully settled count. Affects all placement types (empty slot and existing stack).
 

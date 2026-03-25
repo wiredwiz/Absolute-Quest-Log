@@ -1,6 +1,16 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.2.6 (March 2026)
+---------------------------
+- Bug fix: replaced skip-one-event with a 500 ms settle timer. After the cursor
+  empties, cursorHadItem stays true (suppressing all intermediate events) until
+  the timer fires. The timer callback clears the flag and rebuilds against the
+  fully settled bag state. Handles cases where WoW fires two post-placement
+  events (one with intermediate low count, one with correct count). A
+  bagSettleTimerPending guard prevents duplicate timers.
+
+
 Version 2.2.5 (March 2026)
 ---------------------------
 - Bug fix: false regression/progression still fired after 2.2.4. The

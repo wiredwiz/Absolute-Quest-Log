@@ -21,7 +21,8 @@ AQL.EventEngine = EventEngine
 EventEngine.diffInProgress   = false
 EventEngine.initialized      = false
 EventEngine.pendingTurnIn    = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
-EventEngine.cursorHadItem    = false  -- true while cursor holds an item; cleared when cursor empties to trigger a one-frame settle defer
+EventEngine.cursorHadItem         = false  -- true from when cursor picks up an item until the 500 ms settle timer fires
+EventEngine.bagSettleTimerPending = false  -- true while the settle timer is scheduled; prevents duplicate timers
 
 -- Hidden event frame.
 local frame = CreateFrame("Frame")
@@ -337,29 +338,36 @@ local function handleQuestLogUpdate()
 
     -- Bag-operation guard: cursor-item placement produces unstable intermediate counts.
     --
-    -- When the player picks up items (cursor has item), the quest item count temporarily
-    -- reads lower — skip the rebuild until the cursor is empty.
+    -- When the player picks up items, quest item counts temporarily read lower because
+    -- cursor contents are not counted. We set cursorHadItem and suppress all rebuilds.
     --
-    -- When the cursor empties (items placed into a bag slot), WoW fires QUEST_LOG_UPDATE
-    -- before the destination slot is fully counted. This first post-cursor event always
-    -- reflects an intermediate state. We skip it and let the next natural event run the
-    -- rebuild, which sees the correct settled count. This applies to all placement types
-    -- (empty slot or existing stack) — C_Timer.After(0) fires before the settling event
-    -- and is therefore insufficient.
+    -- When the cursor empties, WoW fires one or two QUEST_LOG_UPDATE events before the
+    -- destination slot is fully settled. We keep cursorHadItem = true (suppressing those
+    -- events) and schedule a single 500 ms timer. The timer fires after all intermediate
+    -- events have passed, clears the flag, and triggers a fresh rebuild against the fully
+    -- settled bag state. The flag is only cleared inside the timer callback so that any
+    -- events arriving during the wait window are also suppressed.
     if CursorHasItem() then
         EventEngine.cursorHadItem = true
         if AQL.debug then
             DEFAULT_CHAT_FRAME:AddMessage(
-                AQL.DBG .. "[AQL] handleQuestLogUpdate: skipped (cursor has item)" .. AQL.RESET)
+                AQL.DBG .. "[AQL] handleQuestLogUpdate: suppressed (cursor has item)" .. AQL.RESET)
         end
         return
     end
 
     if EventEngine.cursorHadItem then
-        EventEngine.cursorHadItem = false
+        if not EventEngine.bagSettleTimerPending then
+            EventEngine.bagSettleTimerPending = true
+            C_Timer.After(0.5, function()
+                EventEngine.cursorHadItem         = false
+                EventEngine.bagSettleTimerPending = false
+                handleQuestLogUpdate()
+            end)
+        end
         if AQL.debug then
             DEFAULT_CHAT_FRAME:AddMessage(
-                AQL.DBG .. "[AQL] handleQuestLogUpdate: skipped (first event after cursor emptied — bag not yet settled)" .. AQL.RESET)
+                AQL.DBG .. "[AQL] handleQuestLogUpdate: suppressed (waiting for bag to settle)" .. AQL.RESET)
         end
         return
     end
