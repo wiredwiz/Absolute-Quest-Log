@@ -21,6 +21,7 @@ AQL.EventEngine = EventEngine
 EventEngine.diffInProgress   = false
 EventEngine.initialized      = false
 EventEngine.pendingTurnIn    = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
+EventEngine.cursorHadItem    = false  -- true while cursor holds an item; cleared when cursor empties to trigger a one-frame settle defer
 
 -- Hidden event frame.
 local frame = CreateFrame("Frame")
@@ -334,15 +335,31 @@ local function handleQuestLogUpdate()
         return
     end
 
-    -- If the player has an item on the cursor, this update is due to a bag
-    -- operation in progress. The objective count is an unstable intermediate.
-    -- Defer until cursor is empty; the next QUEST_LOG_UPDATE (fired when items
-    -- are placed) processes normally with a net-zero diff.
+    -- Bag-operation guard: cursor-item placement produces unstable intermediate counts.
+    --
+    -- When the player picks up items (cursor has item), the quest item count temporarily
+    -- reads lower — defer until cursor is empty.
+    --
+    -- When the cursor empties into an EMPTY bag slot, WoW fires QUEST_LOG_UPDATE before
+    -- the destination slot is counted, producing a momentary incorrect count. Defer one
+    -- more frame via C_Timer.After(0) so the bag fully settles before rebuilding.
+    -- Placing into an existing stack is atomic and produces a correct count immediately.
     if CursorHasItem() then
+        EventEngine.cursorHadItem = true
         if AQL.debug then
             DEFAULT_CHAT_FRAME:AddMessage(
                 AQL.DBG .. "[AQL] handleQuestLogUpdate: deferred (cursor has item)" .. AQL.RESET)
         end
+        return
+    end
+
+    if EventEngine.cursorHadItem then
+        EventEngine.cursorHadItem = false
+        if AQL.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(
+                AQL.DBG .. "[AQL] handleQuestLogUpdate: deferred one frame (cursor just emptied)" .. AQL.RESET)
+        end
+        C_Timer.After(0, handleQuestLogUpdate)
         return
     end
 
