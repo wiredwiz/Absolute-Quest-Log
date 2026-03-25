@@ -308,6 +308,9 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.2.5 (March 2026)
+- Bug fix: replaced `C_Timer.After(0, handleQuestLogUpdate)` in the cursor/bag guard with a plain `return`. The timer approach fired too early — `C_Timer` runs at the end of Frame N's timer pass, but the settling `QUEST_LOG_UPDATE` arrives on Frame N+1, so the timer rebuild always saw the intermediate count and fired false `AQL_OBJECTIVE_REGRESSED` + `AQL_OBJECTIVE_PROGRESSED`. The correct approach skips exactly the first `QUEST_LOG_UPDATE` after the cursor empties; the next natural event runs the rebuild with the fully settled count. Affects all placement types (empty slot and existing stack).
+
 ### Version 2.2.4 (March 2026)
 - Bug fix: extended the cursor/bag guard in `handleQuestLogUpdate()` to also handle the case where items are dropped into an **empty** bag slot. When placing into an empty slot, WoW fires `QUEST_LOG_UPDATE` after the cursor empties but before the destination slot is counted, causing a false `AQL_OBJECTIVE_REGRESSED` immediately followed by `AQL_OBJECTIVE_PROGRESSED`. Added `EventEngine.cursorHadItem` flag: set when `CursorHasItem()` is true, cleared on the first post-cursor event with a one-frame `C_Timer.After(0)` defer so the bag fully settles before rebuilding. Placing into an existing stack is atomic (no intermediate event) and is unaffected.
 

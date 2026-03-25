@@ -1,6 +1,17 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.2.5 (March 2026)
+---------------------------
+- Bug fix: false regression/progression still fired after 2.2.4. The
+  C_Timer.After(0) approach fired too early — the timer runs at the end of Frame
+  N, but the bag-settle QUEST_LOG_UPDATE arrives on Frame N+1, so the timer
+  rebuild always read the intermediate count. Fix: skip exactly the first
+  QUEST_LOG_UPDATE after cursor empties and let the next natural event rebuild
+  with the correct settled count. Affects all placement types (empty slot and
+  existing stack).
+
+
 Version 2.2.4 (March 2026)
 ---------------------------
 - Bug fix: false regression/progression when dropping split quest items into an

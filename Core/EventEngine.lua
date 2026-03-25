@@ -338,17 +338,19 @@ local function handleQuestLogUpdate()
     -- Bag-operation guard: cursor-item placement produces unstable intermediate counts.
     --
     -- When the player picks up items (cursor has item), the quest item count temporarily
-    -- reads lower — defer until cursor is empty.
+    -- reads lower — skip the rebuild until the cursor is empty.
     --
-    -- When the cursor empties into an EMPTY bag slot, WoW fires QUEST_LOG_UPDATE before
-    -- the destination slot is counted, producing a momentary incorrect count. Defer one
-    -- more frame via C_Timer.After(0) so the bag fully settles before rebuilding.
-    -- Placing into an existing stack is atomic and produces a correct count immediately.
+    -- When the cursor empties (items placed into a bag slot), WoW fires QUEST_LOG_UPDATE
+    -- before the destination slot is fully counted. This first post-cursor event always
+    -- reflects an intermediate state. We skip it and let the next natural event run the
+    -- rebuild, which sees the correct settled count. This applies to all placement types
+    -- (empty slot or existing stack) — C_Timer.After(0) fires before the settling event
+    -- and is therefore insufficient.
     if CursorHasItem() then
         EventEngine.cursorHadItem = true
         if AQL.debug then
             DEFAULT_CHAT_FRAME:AddMessage(
-                AQL.DBG .. "[AQL] handleQuestLogUpdate: deferred (cursor has item)" .. AQL.RESET)
+                AQL.DBG .. "[AQL] handleQuestLogUpdate: skipped (cursor has item)" .. AQL.RESET)
         end
         return
     end
@@ -357,9 +359,8 @@ local function handleQuestLogUpdate()
         EventEngine.cursorHadItem = false
         if AQL.debug then
             DEFAULT_CHAT_FRAME:AddMessage(
-                AQL.DBG .. "[AQL] handleQuestLogUpdate: deferred one frame (cursor just emptied)" .. AQL.RESET)
+                AQL.DBG .. "[AQL] handleQuestLogUpdate: skipped (first event after cursor emptied — bag not yet settled)" .. AQL.RESET)
         end
-        C_Timer.After(0, handleQuestLogUpdate)
         return
     end
 
