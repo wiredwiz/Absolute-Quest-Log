@@ -251,4 +251,33 @@ function QuestieProvider:GetQuestFaction(questID)
     return nil
 end
 
+-- Returns quest requirements from QuestieDB, or nil if the quest is not found.
+-- Bitmask fields with value 0 are normalised to nil (0 = no restriction in Questie's encoding).
+-- nextQuestInChain value of 0 is normalised to nil.
+function QuestieProvider:GetQuestRequirements(questID)
+    local db = getDB()
+    if not db then return nil end
+    local ok, quest = pcall(db.GetQuest, questID)
+    if not ok or not quest then return nil end
+
+    local function zeroToNil(v)
+        if v == 0 then return nil end
+        return v
+    end
+
+    local nextInChain = zeroToNil(quest.nextQuestInChain)
+
+    return {
+        requiredLevel        = zeroToNil(quest.requiredLevel),
+        requiredMaxLevel     = zeroToNil(quest.requiredMaxLevel),
+        requiredRaces        = zeroToNil(quest.requiredRaces),
+        requiredClasses      = zeroToNil(quest.requiredClasses),
+        preQuestGroup        = quest.preQuestGroup,
+        preQuestSingle       = quest.preQuestSingle,
+        exclusiveTo          = quest.exclusiveTo,
+        nextQuestInChain     = nextInChain,
+        breadcrumbForQuestId = quest.breadcrumbForQuestId,
+    }
+end
+
 AQL.QuestieProvider = QuestieProvider
