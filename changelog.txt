@@ -1,6 +1,17 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.4.0 (March 2026)
+---------------------------
+- New public API: AQL:GetQuestRequirements(questID) returns a table of quest
+  eligibility requirements: requiredLevel, requiredMaxLevel, requiredRaces
+  (bitmask), requiredClasses (bitmask), preQuestGroup (ALL must be complete),
+  preQuestSingle (ANY ONE must be complete), exclusiveTo, nextQuestInChain,
+  and breadcrumbForQuestId. Bitmask fields with Questie's "no restriction"
+  value of 0 are normalised to nil so consumers can check with a simple
+  if-nil guard. QuestieProvider returns all nine fields. QuestWeaverProvider
+  returns requiredLevel only. NullProvider returns nil.
+
 Version 2.3.0 (March 2026)
 ---------------------------
 - Bug fix: AQL_QUEST_ACCEPTED was firing for quests already in the player's

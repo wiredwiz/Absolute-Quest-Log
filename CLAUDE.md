@@ -272,6 +272,7 @@ Every provider must implement:
 - `Provider:GetQuestType(questID)` → string or nil
 - `Provider:GetQuestFaction(questID)` → "Alliance" | "Horde" | nil
 - `Provider:GetQuestBasicInfo(questID)` → `{ title, questLevel, requiredLevel, zone }` or nil (optional — checked with `if provider.GetQuestBasicInfo then`)
+- `Provider:GetQuestRequirements(questID)` → requirements table or nil
 
 All provider calls in EventEngine are wrapped in `pcall`. A provider that errors does not crash the library.
 
@@ -307,6 +308,9 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ---
 
 ## Version History
+
+### Version 2.4.0 (March 2026)
+- Feature: Added `AQL:GetQuestRequirements(questID)` public method. Returns provider-backed quest eligibility requirements: requiredLevel, requiredMaxLevel, requiredRaces (bitmask), requiredClasses (bitmask), preQuestGroup, preQuestSingle, exclusiveTo, nextQuestInChain, breadcrumbForQuestId. All bitmask fields with value 0 are normalised to nil. Returns nil when NullProvider is active. `QuestieProvider` implements full field mapping from QuestieDB. `QuestWeaverProvider` returns requiredLevel only (other fields nil — QuestWeaver does not expose them). `NullProvider` returns nil. `Provider.lua` documentation updated with interface contract.
 
 ### Version 2.3.0 (March 2026)
 - Bug fix: `AQL_QUEST_ACCEPTED` was firing for quests already in the player's log when `UNIT_QUEST_LOG_CHANGED` fired on party join, causing SocialQuest to announce existing quests as newly accepted. Root cause: `runDiff` fired the callback for any quest appearing "new in cache" regardless of whether the player had actually accepted it. Fix: added `EventEngine.pendingQuestAccepts` set. The `QUEST_ACCEPTED` WoW event handler records the questID; `runDiff` only fires `AQL_QUEST_ACCEPTED` when `pendingQuestAccepts[questID]` is set and clears it on fire. `QUEST_REMOVED` also clears any stale entry. Quests that appear new in a diff without a matching `QUEST_ACCEPTED` event are silently absorbed into the cache with a debug-mode log message.

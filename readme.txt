@@ -167,6 +167,33 @@ All methods are called on the library table (colon syntax).
       status is not "known".
 
 
+  --- Quest Requirements ---
+
+  AQL:GetQuestRequirements(questID)
+      Returns a table of eligibility requirements for the given quest, or nil
+      if the provider has no data for this questID (or no provider is active).
+
+      When Questie is installed, all nine fields are available:
+        requiredLevel        — minimum character level, or nil if no minimum
+        requiredMaxLevel     — maximum character level, or nil if no cap
+        requiredRaces        — bitmask of allowed races, or nil if all allowed
+        requiredClasses      — bitmask of allowed classes, or nil if all allowed
+        preQuestGroup        — array of questIDs; ALL must be completed first
+        preQuestSingle       — array of questIDs; ANY ONE must be completed first
+        exclusiveTo          — array of questIDs that are mutually exclusive
+        nextQuestInChain     — questID of the next quest in the chain, or nil
+        breadcrumbForQuestId — questID this quest is a breadcrumb for, or nil
+
+      When QuestWeaver is installed (and Questie is not), only requiredLevel
+      is populated; all other fields are nil.
+
+      When no quest-data addon is installed, returns nil.
+
+      Bitmask fields follow Questie's encoding. A value of 0 means "no
+      restriction" in Questie's DB; AQL normalises these to nil so you can
+      use a simple nil-check: if reqs.requiredRaces then ... end
+
+
   --- Quest Tracking ---
 
   AQL:TrackQuest(questID)
