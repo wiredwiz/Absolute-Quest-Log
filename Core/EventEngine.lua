@@ -28,6 +28,7 @@ AQL.EventEngine = EventEngine
 EventEngine.diffInProgress      = false
 EventEngine.initialized         = false
 EventEngine.pendingTurnIn       = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
+EventEngine.pendingQuestAccepts = {}  -- questIDs for which QUEST_ACCEPTED fired and are awaiting cache diff
 EventEngine.debounceGeneration  = 0   -- incremented on every QUEST_LOG_UPDATE; timer fires only when still current
 
 -- Hidden event frame.
@@ -145,11 +146,20 @@ local function runDiff(oldCache)
                 if histCache and histCache:HasCompleted(questID) then
                     -- Quest was already completed historically; ignore as a new accept.
                     -- (Can happen at login when cache first builds.)
-                else
+                elseif EventEngine.pendingQuestAccepts[questID] then
+                    EventEngine.pendingQuestAccepts[questID] = nil
                     AQL.callbacks:Fire(AQL.Event.QuestAccepted, newInfo)
                     if AQL.debug then
                         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Quest accepted: " .. tostring(questID) ..
                               " \"" .. tostring(newInfo.title) .. "\"" .. AQL.RESET)
+                    end
+                else
+                    -- Quest appeared in cache without a QUEST_ACCEPTED event.
+                    -- Silently absorb: cache inconsistency, group-join UNIT_QUEST_LOG_CHANGED,
+                    -- or other non-accept log update. Do not fire AQL_QUEST_ACCEPTED.
+                    if AQL.debug then
+                        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Quest absorbed (no QUEST_ACCEPTED event): " ..
+                              tostring(questID) .. " \"" .. tostring(newInfo.title) .. "\"" .. AQL.RESET)
                     end
                 end
             end
@@ -417,10 +427,22 @@ frame:SetScript("OnEvent", function(self, event, ...)
             handleQuestLogUpdate()
         end
 
+    elseif event == "QUEST_ACCEPTED" then
+        local questID = ...
+        if questID then
+            EventEngine.pendingQuestAccepts[questID] = true
+        end
+        handleQuestLogUpdate()
+    elseif event == "QUEST_REMOVED" then
+        local questID = ...
+        if questID then
+            -- Clear any stale pending accept so a future cache inconsistency for this
+            -- questID cannot fire AQL_QUEST_ACCEPTED for a quest that has left the log.
+            EventEngine.pendingQuestAccepts[questID] = nil
+        end
+        handleQuestLogUpdate()
     elseif event == "QUEST_WATCH_LIST_CHANGED"
-        or event == "QUEST_LOG_UPDATE"
-        or event == "QUEST_ACCEPTED"
-        or event == "QUEST_REMOVED" then
+        or event == "QUEST_LOG_UPDATE" then
         handleQuestLogUpdate()
     end
 end)
