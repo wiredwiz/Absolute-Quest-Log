@@ -22,5 +22,24 @@
 --   Provider:GetQuestFaction(questID)
 --     Returns "Alliance", "Horde", or nil (nil means available to both).
 --
+--   Provider:GetQuestRequirements(questID)
+--     Returns a requirements table or nil.
+--     Return shape:
+--       {
+--         requiredLevel        = N or nil,               -- questKeys[4]
+--         requiredMaxLevel     = N or nil,               -- questKeys[32]
+--         requiredRaces        = N or nil,               -- questKeys[6],  bitmask; nil means no restriction
+--         requiredClasses      = N or nil,               -- questKeys[7],  bitmask; nil means no restriction
+--         preQuestGroup        = { questID, ... } or nil, -- questKeys[12], ALL must be complete
+--         preQuestSingle       = { questID, ... } or nil, -- questKeys[13], ANY ONE must be complete
+--         exclusiveTo          = { questID, ... } or nil, -- questKeys[16]
+--         nextQuestInChain     = questID or nil,          -- questKeys[22]
+--         breadcrumbForQuestId = questID or nil,          -- questKeys[27]
+--       }
+--     Bitmask fields with value 0 are normalised to nil by the provider
+--     (0 means "no restriction" in Questie's encoding).
+--     Returns nil when the provider has no data for this questID, or when the
+--     provider does not implement this method (NullProvider).
+--
 -- All provider calls in EventEngine are wrapped in pcall. A provider that
 -- errors is marked unavailable and the next provider in the chain is tried.
