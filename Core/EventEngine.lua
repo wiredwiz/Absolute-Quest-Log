@@ -28,7 +28,7 @@ AQL.EventEngine = EventEngine
 EventEngine.diffInProgress      = false
 EventEngine.initialized         = false
 EventEngine.pendingTurnIn       = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
-EventEngine.pendingQuestAccepts = {}  -- questIDs for which QUEST_ACCEPTED fired and are awaiting cache diff
+EventEngine.pendingAcceptCount  = 0   -- number of QUEST_ACCEPTED events fired and awaiting cache diff
 EventEngine.debounceGeneration  = 0   -- incremented on every QUEST_LOG_UPDATE; timer fires only when still current
 
 -- Hidden event frame.
@@ -146,15 +146,15 @@ local function runDiff(oldCache)
                 if histCache and histCache:HasCompleted(questID) then
                     -- Quest was already completed historically; ignore as a new accept.
                     -- (Can happen at login when cache first builds.)
-                elseif EventEngine.pendingQuestAccepts[questID] then
-                    EventEngine.pendingQuestAccepts[questID] = nil
+                elseif EventEngine.pendingAcceptCount > 0 then
+                    EventEngine.pendingAcceptCount = EventEngine.pendingAcceptCount - 1
                     AQL.callbacks:Fire(AQL.Event.QuestAccepted, newInfo)
                     if AQL.debug then
                         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Quest accepted: " .. tostring(questID) ..
                               " \"" .. tostring(newInfo.title) .. "\"" .. AQL.RESET)
                     end
                 else
-                    -- Quest appeared in cache without a QUEST_ACCEPTED event.
+                    -- Quest appeared in cache without a preceding QUEST_ACCEPTED event.
                     -- Silently absorb: cache inconsistency, group-join UNIT_QUEST_LOG_CHANGED,
                     -- or other non-accept log update. Do not fire AQL_QUEST_ACCEPTED.
                     if AQL.debug then
@@ -428,18 +428,15 @@ frame:SetScript("OnEvent", function(self, event, ...)
         end
 
     elseif event == "QUEST_ACCEPTED" then
-        local questID = ...
-        if questID then
-            EventEngine.pendingQuestAccepts[questID] = true
-        end
+        -- In TBC Classic (Interface 20505), QUEST_ACCEPTED does not pass questID —
+        -- it passes the quest log index (or nothing). Using a count avoids depending
+        -- on the argument type and works for all WoW versions.
+        EventEngine.pendingAcceptCount = EventEngine.pendingAcceptCount + 1
         handleQuestLogUpdate()
     elseif event == "QUEST_REMOVED" then
-        local questID = ...
-        if questID then
-            -- Clear any stale pending accept so a future cache inconsistency for this
-            -- questID cannot fire AQL_QUEST_ACCEPTED for a quest that has left the log.
-            EventEngine.pendingQuestAccepts[questID] = nil
-        end
+        -- Reset the count so a stale accept cannot fire for a quest that was removed
+        -- (e.g. player accepted then immediately abandoned before the diff ran).
+        EventEngine.pendingAcceptCount = 0
         handleQuestLogUpdate()
     elseif event == "QUEST_WATCH_LIST_CHANGED"
         or event == "QUEST_LOG_UPDATE" then
