@@ -309,6 +309,9 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.4.1 (March 2026)
+- Bug fix: `AQL_QUEST_ACCEPTED` never fired after the 2.3.0 false-positive fix. Root cause: in TBC Classic (Interface 20505), the `QUEST_ACCEPTED` event does not pass a questID — it passes the quest log index (or nothing). The 2.3.0 fix stored `pendingQuestAccepts[logIndex] = true`, but `runDiff` checked `pendingQuestAccepts[questID]`, so they never matched and every accept was silently absorbed. Fix: replaced the per-ID table with a `pendingAcceptCount` integer. `QUEST_ACCEPTED` increments the count; `runDiff` decrements and fires for each new quest while count > 0; `QUEST_REMOVED` resets to 0 to clear stale counts on abandon. Group-join false positives are still blocked (`UNIT_QUEST_LOG_CHANGED` carries no `QUEST_ACCEPTED`, so count stays 0).
+
 ### Version 2.4.0 (March 2026)
 - Feature: Added `AQL:GetQuestRequirements(questID)` public method. Returns provider-backed quest eligibility requirements: requiredLevel, requiredMaxLevel, requiredRaces (bitmask), requiredClasses (bitmask), preQuestGroup, preQuestSingle, exclusiveTo, nextQuestInChain, breadcrumbForQuestId. All bitmask fields with value 0 are normalised to nil. Returns nil when NullProvider is active. `QuestieProvider` implements full field mapping from QuestieDB. `QuestWeaverProvider` returns requiredLevel only (other fields nil — QuestWeaver does not expose them). `NullProvider` returns nil. `Provider.lua` documentation updated with interface contract.
 
