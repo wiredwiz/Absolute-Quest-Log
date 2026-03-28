@@ -1,20 +1,6 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
-Version 2.4.1 (March 2026)
----------------------------
-- Bug fix: AQL_QUEST_ACCEPTED never fired after the 2.3.0 false-positive fix.
-  Root cause: in TBC Classic (Interface 20505), the QUEST_ACCEPTED event does
-  not pass a questID — it passes the quest log index (or nothing). The 2.3.0
-  fix stored pendingQuestAccepts[logIndex] = true, but runDiff checked
-  pendingQuestAccepts[questID], so they never matched and every accept was
-  silently absorbed. Fix: replaced the per-ID table with a pendingAcceptCount
-  integer. QUEST_ACCEPTED increments the count; runDiff decrements and fires
-  for each new quest while count > 0; QUEST_REMOVED resets to 0 to clear
-  stale counts on abandon. Group-join false positives are still blocked
-  (UNIT_QUEST_LOG_CHANGED carries no QUEST_ACCEPTED, so count stays 0).
-
-
 Version 2.4.0 (March 2026)
 ---------------------------
 - New public API: AQL:GetQuestRequirements(questID) returns a table of quest
@@ -25,6 +11,17 @@ Version 2.4.0 (March 2026)
   value of 0 are normalised to nil so consumers can check with a simple
   if-nil guard. QuestieProvider returns all nine fields. QuestWeaverProvider
   returns requiredLevel only. NullProvider returns nil.
+  
+- Bug fix: AQL_QUEST_ACCEPTED never fired after the 2.3.0 false-positive fix.
+  Root cause: in TBC Classic (Interface 20505), the QUEST_ACCEPTED event does
+  not pass a questID — it passes the quest log index (or nothing). The 2.3.0
+  fix stored pendingQuestAccepts[logIndex] = true, but runDiff checked
+  pendingQuestAccepts[questID], so they never matched and every accept was
+  silently absorbed. Fix: replaced the per-ID table with a pendingAcceptCount
+  integer. QUEST_ACCEPTED increments the count; runDiff decrements and fires
+  for each new quest while count > 0; QUEST_REMOVED resets to 0 to clear
+  stale counts on abandon. Group-join false positives are still blocked
+  (UNIT_QUEST_LOG_CHANGED carries no QUEST_ACCEPTED, so count stays 0).
 
 Version 2.3.0 (March 2026)
 ---------------------------
