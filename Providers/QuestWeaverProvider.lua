@@ -112,4 +112,25 @@ function QuestWeaverProvider:GetQuestBasicInfo(questID)
     }
 end
 
+function QuestWeaverProvider:GetQuestRequirements(questID)
+    if not self:IsAvailable() then return nil end
+    local qw = _G["QuestWeaver"]
+    local quest = qw.Quests and qw.Quests[questID]
+    if not quest then return nil end
+    -- QuestWeaver only exposes min_level; all other requirement fields are unavailable.
+    local minLevel = quest.min_level
+    if not minLevel or minLevel == 0 then minLevel = nil end
+    return {
+        requiredLevel        = minLevel,
+        requiredMaxLevel     = nil,
+        requiredRaces        = nil,
+        requiredClasses      = nil,
+        preQuestGroup        = nil,
+        preQuestSingle       = nil,
+        exclusiveTo          = nil,
+        nextQuestInChain     = nil,
+        breadcrumbForQuestId = nil,
+    }
+end
+
 AQL.QuestWeaverProvider = QuestWeaverProvider
