@@ -362,6 +362,28 @@ function AQL:IsQuestObjectiveText(msg)
 end
 
 ------------------------------------------------------------------------
+-- Quest Requirements
+------------------------------------------------------------------------
+
+-- GetQuestRequirements(questID) → requirements table or nil
+-- Returns provider-backed quest eligibility requirements for questID.
+-- Return shape: { requiredLevel, requiredMaxLevel, requiredRaces, requiredClasses,
+--   preQuestGroup, preQuestSingle, exclusiveTo, nextQuestInChain, breadcrumbForQuestId }
+-- All bitmask fields with value 0 are normalised to nil by the provider.
+-- Returns nil when no provider is available (NullProvider active) or when
+-- the provider has no data for this questID.
+-- Designed to always return data once QuestieDB is bundled into AQL.
+function AQL:GetQuestRequirements(questID)
+    local provider = self.provider
+    if not provider or not provider.GetQuestRequirements then
+        return nil
+    end
+    local ok, result = pcall(provider.GetQuestRequirements, provider, questID)
+    if not ok then return nil end
+    return result
+end
+
+------------------------------------------------------------------------
 -- Quest Tracking
 ------------------------------------------------------------------------
 

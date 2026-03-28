@@ -1,6 +1,30 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.4.0 (March 2026)
+---------------------------
+- New public API: AQL:GetQuestRequirements(questID) returns a table of quest
+  eligibility requirements: requiredLevel, requiredMaxLevel, requiredRaces
+  (bitmask), requiredClasses (bitmask), preQuestGroup (ALL must be complete),
+  preQuestSingle (ANY ONE must be complete), exclusiveTo, nextQuestInChain,
+  and breadcrumbForQuestId. Bitmask fields with Questie's "no restriction"
+  value of 0 are normalised to nil so consumers can check with a simple
+  if-nil guard. QuestieProvider returns all nine fields. QuestWeaverProvider
+  returns requiredLevel only. NullProvider returns nil.
+
+Version 2.3.0 (March 2026)
+---------------------------
+- Bug fix: AQL_QUEST_ACCEPTED was firing for quests already in the player's
+  log when UNIT_QUEST_LOG_CHANGED fired on party join. Consumer addons (e.g.
+  SocialQuest) would then announce existing quests as newly accepted. The root
+  cause was that runDiff fired the callback for any quest appearing "new in
+  cache" regardless of whether the player had actually accepted it. Fix: added
+  a pendingQuestAccepts set to EventEngine. The QUEST_ACCEPTED WoW event
+  handler records the questID; runDiff only fires AQL_QUEST_ACCEPTED when a
+  matching entry is present and clears it on fire. QUEST_REMOVED also clears
+  any stale entry. Quests that appear new in a diff without a corresponding
+  QUEST_ACCEPTED event are silently absorbed, with a debug-mode log message.
+
 Version 2.2.8 (March 2026)
 ---------------------------
 - Bug fix: splitting or combining stacks of quest items in your bags could
