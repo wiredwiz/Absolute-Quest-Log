@@ -145,7 +145,7 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     end
 
     -- isTracked: IsQuestWatched takes a quest log index.
-    local isTracked = IsQuestWatched(logIndex) == true
+    local isTracked = IsQuestWatched(logIndex) and true or false
 
     -- Objectives.
     -- C_QuestLog.GetQuestObjectives returns per-objective: text, type, finished,
