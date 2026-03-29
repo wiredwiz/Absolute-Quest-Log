@@ -62,12 +62,12 @@ end
 
 ```lua
 ------------------------------------------------------------------------
--- WowQuestAPI.GetNumQuestWatches()
+-- WowQuestAPI.GetWatchedQuestCount()
 -- Returns the number of quests currently on the watch list.
 ------------------------------------------------------------------------
 
-function WowQuestAPI.GetNumQuestWatches()
-    return GetNumQuestWatches()
+function WowQuestAPI.GetWatchedQuestCount()
+    return GetWatchedQuestCount()
 end
 
 ------------------------------------------------------------------------
@@ -216,7 +216,7 @@ Both calls are in the `TrackQuest` method (around line 395).
 
 | Current | Replacement |
 |---|---|
-| `GetNumQuestWatches()` | `WowQuestAPI.GetNumQuestWatches()` |
+| `GetWatchedQuestCount()` | `WowQuestAPI.GetWatchedQuestCount()` |
 | `MAX_WATCHABLE_QUESTS` | `WowQuestAPI.GetMaxWatchableQuests()` |
 
 ---
@@ -245,7 +245,7 @@ Both calls are in the `TrackQuest` method (around line 395).
 - New wrappers added to WowQuestAPI.lua: GetQuestsCompleted,
   IsQuestWatchedByIndex, IsQuestWatchedById, GetQuestLogTimeLeft,
   GetQuestLinkByIndex, GetQuestLinkById, GetCurrentDisplayedQuestID,
-  GetNumQuestWatches, GetMaxWatchableQuests, GetAreaInfo. Zero behavioral changes.
+  GetWatchedQuestCount, GetMaxWatchableQuests, GetAreaInfo. Zero behavioral changes.
 ```
 
 ---
@@ -261,7 +261,7 @@ Both calls are in the `TrackQuest` method (around line 395).
 
    **New wrappers (APIs that had no wrapper before this sub-project):**
    ```bash
-   grep -rn "GetQuestsCompleted\|IsQuestWatched\|GetQuestLogTimeLeft\|GetQuestLink\|GetQuestID\(\)\|GetNumQuestWatches\|MAX_WATCHABLE_QUESTS\|C_Map\.GetAreaInfo" Core/ AbsoluteQuestLog.lua Providers/ --include="*.lua" | grep -v WowQuestAPI.lua
+   grep -rn "GetQuestsCompleted\|IsQuestWatched\|GetQuestLogTimeLeft\|GetQuestLink\|GetQuestID\(\)\|GetWatchedQuestCount\|MAX_WATCHABLE_QUESTS\|C_Map\.GetAreaInfo" Core/ AbsoluteQuestLog.lua Providers/ --include="*.lua" | grep -v WowQuestAPI.lua
    ```
    Expected: zero results.
 
