@@ -42,7 +42,7 @@ local MAX_DEFERRED_UPGRADE_ATTEMPTS = 5
 -- QUEST_TURNED_IN does not fire in TBC Classic (Interface 20505).
 -- Hook GetQuestReward as the turn-in signal for TBC: it fires synchronously
 -- when the player clicks the confirm button, before items are transferred.
--- GetQuestID() returns the active questID at this point.
+-- WowQuestAPI.GetCurrentDisplayedQuestID() returns the active questID at this point.
 -- On Classic Era, MoP, and Retail, QUEST_TURNED_IN fires and also sets
 -- pendingTurnIn directly (see the event handler below). Both paths are
 -- harmless on versions that fire both; the hook is kept for TBC compatibility.
