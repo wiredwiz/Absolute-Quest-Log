@@ -72,7 +72,10 @@ function AQL:GetSelectedQuestLogEntryId()
 end
 ```
 
-> **Note for implementer:** Read the existing `GetSelectedQuestId()` body at line ~686 and reproduce it exactly (the body above is illustrative — copy the real implementation verbatim to ensure identical behavior).
+> **Note for implementer:** The code block above is **illustrative only**. You MUST read the existing `GetSelectedQuestId()` body at line ~686 and copy it verbatim — only change the method name in the function declaration and in any debug message strings. Two specific differences between the illustration and the real code that you must NOT lose:
+> 1. The isHeader guard in the real code is `if isHeader or not questID then` — not just `if isHeader then`
+> 2. The debug message strings include `logIndex` in the output (e.g., `"logIndex=" .. tostring(logIndex)`)
+> Copy the full real implementation; do not use the illustration as the source.
 
 ### 1b. `AQL:SelectQuestLogEntryById(questID)` (new method — no existing equivalent)
 
