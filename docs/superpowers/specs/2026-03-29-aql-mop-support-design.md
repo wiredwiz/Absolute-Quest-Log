@@ -90,7 +90,8 @@ elseif IS_MOP then
     function WowQuestAPI.IsUnitOnQuest(questID, unit)
         local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
         if not logIndex then return nil end
-        return IsUnitOnQuest(logIndex, unit) ~= nil
+        if IsUnitOnQuest(logIndex, unit) then return true end
+        return false
     end
 else
     function WowQuestAPI.IsUnitOnQuest(questID, unit)
@@ -99,7 +100,7 @@ else
 end
 ```
 
-**Why `~= nil` instead of `== true`:** Legacy WoW C functions in the 5.x era commonly return `1` (number) rather than Lua `true`. In Lua, `1 == true` evaluates to `false` — the wrong result. Using `~= nil` is safe regardless of whether the global returns `1` or `true`. This matches the `GetQuestLogPushable() ~= nil` pattern already used in WowQuestAPI.lua.
+**Why `if ... then return true end / return false`:** Legacy WoW C globals commonly return `1` (not Lua `true`) for the truthy case. `1 == true` evaluates to `false` in Lua. `~= nil` fails if the global returns boolean `false`. The explicit `if/then/return` pattern coerces any truthy value to `true` and any falsy value (nil, false) to `false`, regardless of WoW API return type.
 
 **Why not `IS_CLASSIC_ERA` here:** Classic Era also has `IsUnitOnQuest(logIndex, unit)` (api-compatibility.md shows ✓). However, the IsUnitOnQuest wrapper comment already says "Returns nil on TBC/Classic" and the Classic Era sub-project confirmed no change was needed there. Classic Era support for `IsUnitOnQuest` is deferred — this sub-project adds MoP only.
 
@@ -127,7 +128,42 @@ Replace with:
 
 ---
 
-## Deliverable 2 — WowQuestAPI.lua: GetQuestInfo else-branch comment cleanup
+## Deliverable 2 — Boolean coercion fixes in WowQuestAPI.lua and QuestCache.lua
+
+Two existing lines use unsafe boolean patterns on WoW legacy globals. Fixed here since they have the same root cause as the `IsUnitOnQuest` MoP fix above.
+
+### Fix 1: `Core/WowQuestAPI.lua` — `GetQuestLogPushable`
+
+Current (line 203):
+```lua
+return GetQuestLogPushable() ~= nil
+```
+
+Replace with:
+```lua
+if GetQuestLogPushable() then return true end
+return false
+```
+
+`GetQuestLogPushable()` is a legacy C global. `~= nil` returns `true` if the function returns boolean `false`, which would misreport an unshareable quest as shareable.
+
+### Fix 2: `Core/QuestCache.lua` — `IsQuestWatched`
+
+Current (line 148):
+```lua
+local isTracked = IsQuestWatched(logIndex) == true
+```
+
+Replace with:
+```lua
+local isTracked = IsQuestWatched(logIndex) and true or false
+```
+
+`IsQuestWatched` is a legacy C global. If it returns `1`, `== true` evaluates to `false`, meaning quests would never be marked as tracked regardless of their actual watch state. The `and true or false` pattern handles `1`, `true`, `nil`, and `false` correctly.
+
+---
+
+## Deliverable 4 — WowQuestAPI.lua: GetQuestInfo else-branch comment cleanup
 
 ### File modified: `Core/WowQuestAPI.lua`
 
@@ -145,7 +181,7 @@ else  -- IS_TBC, IS_CLASSIC_ERA, and IS_MOP (same log-scan API on all three vers
 
 ---
 
-## Deliverable 3 — EventEngine.lua: QUEST_TURNED_IN registration and handler
+## Deliverable 5 — EventEngine.lua: QUEST_TURNED_IN registration and handler
 
 ### File modified: `Core/EventEngine.lua`
 
@@ -231,7 +267,8 @@ Insert a new branch **before** the `QUEST_WATCH_LIST_CHANGED` branch:
 
 | File | Change |
 |---|---|
-| `Core/WowQuestAPI.lua` | Add MoP branch to `IsUnitOnQuest`; update header comment; clean up `GetQuestInfo` else-branch deferred language |
+| `Core/WowQuestAPI.lua` | Add MoP branch to `IsUnitOnQuest`; update header comment; fix `GetQuestLogPushable` boolean coercion; clean up `GetQuestInfo` else-branch deferred language |
+| `Core/QuestCache.lua` | Fix `IsQuestWatched` boolean coercion |
 | `Core/EventEngine.lua` | Update `GetQuestReward` hook comment; register `QUEST_TURNED_IN`; add event handler branch |
 | `AbsoluteQuestLog.toc` + four version tocs | Version bump to 2.5.2 |
 | `CLAUDE.md` | Add version 2.5.2 entry; add `QUEST_TURNED_IN` to the "WoW Events Registered" section |
@@ -252,3 +289,4 @@ Insert a new branch **before** the `QUEST_WATCH_LIST_CHANGED` branch:
 3. `AQL_QUEST_COMPLETED` fires exactly once per turn-in on all versions — no double-firing.
 4. TBC behavior is identical: `GetQuestReward` hook still fires; `QUEST_TURNED_IN` does not fire on TBC so the new handler branch is never reached.
 5. The `GetQuestInfo` else-branch comment no longer contains deferred language about the MoP sub-project.
+6. `GetQuestLogPushable` and `IsQuestWatched` use explicit boolean coercion — no `~= nil` or `== true` comparisons on legacy WoW globals remain in `WowQuestAPI.lua` or `QuestCache.lua`.
