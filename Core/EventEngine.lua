@@ -49,7 +49,7 @@ local MAX_DEFERRED_UPGRADE_ATTEMPTS = 5
 -- The hook fires only on confirmation; cancelling the reward screen does not
 -- call GetQuestReward, so pendingTurnIn is never set on cancel.
 hooksecurefunc("GetQuestReward", function()
-    local questID = GetQuestID()
+    local questID = WowQuestAPI.GetCurrentDisplayedQuestID()
     if questID and questID ~= 0 then
         EventEngine.pendingTurnIn[questID] = true
         if AQL.debug then

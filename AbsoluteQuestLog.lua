@@ -392,7 +392,7 @@ end
 -- Returns true if the quest was successfully handed to AddQuestWatch.
 -- Caller is responsible for displaying a message when false is returned.
 function AQL:TrackQuest(questID)
-    if GetNumQuestWatches() >= MAX_WATCHABLE_QUESTS then
+    if WowQuestAPI.GetWatchedQuestCount() >= WowQuestAPI.GetMaxWatchableQuests() then
         return false
     end
     WowQuestAPI.TrackQuest(questID)
