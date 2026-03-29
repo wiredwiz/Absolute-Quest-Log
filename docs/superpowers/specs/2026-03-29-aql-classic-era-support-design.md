@@ -61,25 +61,25 @@ This provider picture is currently undocumented in `docs/api-compatibility.md`. 
 
 Three locations require updates. No logic changes — only condition expressions and comments.
 
-#### Location 1: `GetQuestInfo` — line 26-27 header comment and line 47 condition
+#### Location 1: `GetQuestInfo` — header comment and else-branch comment
+
+The `else` branch structure is kept as-is — changing it to `elseif IS_TBC or IS_CLASSIC_ERA` would leave `WowQuestAPI.GetQuestInfo` as `nil` on MoP clients (call-time Lua error). Since `GetQuestLogTitle` and the title-string `C_QuestLog.GetQuestInfo` fallback work on MoP as well, the `else` catch-all is correct for TBC, Classic Era, and MoP alike.
 
 **Header comment** (lines 26–27), update to:
 ```lua
--- Classic Era and TBC: tier-1 log scan (GetQuestLogTitle),
---   tier-2 C_QuestLog.GetQuestInfo (returns title string on both versions).
+-- Classic Era, TBC, and MoP: tier-1 log scan (GetQuestLogTitle),
+--   tier-2 C_QuestLog.GetQuestInfo (returns title string on all three versions).
 -- Retail: single C_QuestLog.GetQuestInfo call returns full info table.
 ```
 
-**Condition** (line 47), change from:
+**Else-branch comment** (line 47), change from:
 ```lua
 else  -- IS_TBC (IS_CLASSIC_ERA and IS_MOP handled in later sub-projects)
 ```
 To:
 ```lua
-elseif IS_TBC or IS_CLASSIC_ERA then  -- same API surface; MoP handled in MoP sub-project
+else  -- IS_TBC, IS_CLASSIC_ERA, and IS_MOP (same log-scan API; MoP sub-project handles MoP-specific improvements)
 ```
-
-This requires adding a closing `end` to terminate the `if/elseif` block (the current `else` terminates with `end` at line 78; the `elseif` form needs the same `end`).
 
 **Tier-2 comment** (line 73), update from:
 ```lua
@@ -87,8 +87,10 @@ This requires adding a closing `end` to terminate the `if/elseif` block (the cur
 ```
 To:
 ```lua
--- C_QuestLog.GetQuestInfo(questID) returns a title string or nil on TBC and Classic Era.
+-- C_QuestLog.GetQuestInfo(questID) returns a title string or nil on TBC, Classic Era, and MoP.
 ```
+
+No structural Lua changes — the existing `end` at line 78 continues to close the block correctly.
 
 #### Location 2: `IsQuestFlaggedCompleted` — line 94-96 header comment
 
@@ -106,7 +108,7 @@ Add one line below it:
 
 #### Location 3: `IsUnitOnQuest` — header comment
 
-The condition (`if IS_RETAIL then ... else return nil`) correctly returns nil for Classic Era and TBC. The header comment already says "Returns nil on TBC/Classic". Confirm this comment explicitly names Classic Era. If it reads only "TBC/Classic" already — no change. If it says "Returns nil on TBC" only — update to "Returns nil on TBC and Classic Era (API does not exist)".
+The condition (`if IS_RETAIL then ... else return nil`) correctly returns nil for Classic Era and TBC. The current header comment reads "Returns nil on TBC/Classic (API does not exist)." — this already covers Classic Era. **No change needed.** Confirmed by reading the file.
 
 ---
 
@@ -161,6 +163,7 @@ treat as NullProvider fallback until verified in the MoP sub-project.
 ## Success Criteria
 
 1. No branch in `WowQuestAPI.lua` has a comment deferring Classic Era to "later sub-projects."
-2. Every `if/elseif/else` block in `WowQuestAPI.lua` explicitly names all version families it covers (no implicit fallthrough assumptions).
-3. `docs/api-compatibility.md` has a provider availability table with Retail, MoP, QuestWeaver notes documented.
-4. TBC behavior is byte-for-byte identical before and after — the condition `IS_TBC or IS_CLASSIC_ERA` is logically equivalent to the previous `else` for any TBC client.
+2. Every `if/elseif/else` block in `WowQuestAPI.lua` explicitly names all version families it covers in its comment — no implicit fallthrough assumptions remain.
+3. `docs/api-compatibility.md` has a provider availability table with Retail, MoP, and QuestWeaver notes documented.
+4. TBC behavior is identical before and after — the `else` branch comment change is purely documentation; no Lua code structure changes.
+5. Classic Era clients (`_TOC < 20000`) reach the `else` branch of `GetQuestInfo` and execute the log-scan / title-string fallback — no nil-function call errors occur on Classic Era.
