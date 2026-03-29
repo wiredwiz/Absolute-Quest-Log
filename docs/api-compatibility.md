@@ -50,7 +50,7 @@ families. Produced during the Multi-Version Foundation sub-project.
 | API | Classic 1.14.x | TBC 2.x | MoP 5.x | Retail 12.x | Notes |
 |---|---|---|---|---|---|
 | `GetQuestLogPushable()` | ✓ | ✓ | ✓ | ~ | Retail: moved to `C_QuestLog.IsPushableQuest()` in 9.0.1; global still exists as deprecated wrapper |
-| `QuestLogPushQuest()` | ✓ | ✓ | ✓ | ✓ | Available on all versions since 1.0.0 |
+| `QuestLogPushQuest()` | ✓ | ✓ | ✓ | ~ | Retail 9.0.1+: use `C_QuestLog.PushQuest(questID)` instead. Global wrapper may still exist as stub. |
 
 ## 5. Quest Log Frame Globals
 
@@ -61,8 +61,8 @@ families. Produced during the Multi-Version Foundation sub-project.
 | `QuestLog_Update()` | ✓ | ✓ | ✓ | ✗ | FrameXML function. Retail: no direct equivalent; quest log UI auto-updates |
 | `ExpandQuestHeader(logIndex)` | ✓ | ✓ | ✓ | ✓ | Available on all versions since 1.0.0 |
 | `CollapseQuestHeader(logIndex)` | ✓ | ✓ | ✓ | ✓ | Available on all versions since 1.0.0 |
-| `ShowUIPanel(frame)` | ✓ | ✓ | ✓ | ✓ | Protected during combat since 8.2.0; available on all versions |
-| `HideUIPanel(frame)` | ✓ | ✓ | ✓ | ✓ | Protected during combat since 8.2.0; available on all versions |
+| `ShowUIPanel(frame)` | ✓ | ✓ | ✓ | ✓ | Protected during combat since 8.2.0; available on all versions. On Retail, `QuestLogFrame` does not exist (see above), so the quest-log use case requires World Map API instead. `ShowUIPanel`/`HideUIPanel` themselves still exist. |
+| `HideUIPanel(frame)` | ✓ | ✓ | ✓ | ✓ | Protected during combat since 8.2.0; available on all versions. On Retail, `QuestLogFrame` does not exist (see above), so the quest-log use case requires World Map API instead. `ShowUIPanel`/`HideUIPanel` themselves still exist. |
 
 ## 6. Quest Tracking
 
@@ -70,7 +70,7 @@ families. Produced during the Multi-Version Foundation sub-project.
 |---|---|---|---|---|---|
 | `AddQuestWatch(logIndex)` | ✓ | ✓ | ✓ | ~ | Retail: moved to `C_QuestLog.AddQuestWatch(questID)` in 9.0.1 (note: takes questID, not logIndex) |
 | `RemoveQuestWatch(logIndex)` | ✓ | ✓ | ✓ | ~ | Retail: moved to `C_QuestLog.RemoveQuestWatch(questID)` in 9.0.1 (note: takes questID, not logIndex) |
-| `MAX_WATCHABLE_QUESTS` | ✓ | ✓ | ✓ | ? | FrameXML constant. Could not verify current Retail value — implication for Retail sub-project: test at runtime |
+| `MAX_WATCHABLE_QUESTS` | ✓ | ✓ | ✓ | ? | FrameXML constant. Could not verify current Retail value — test at runtime. If nil at runtime, treat as no cap or use a fallback value (e.g., 25). AQL's `TrackQuest` already guards on this constant. |
 | `QUEST_WATCH_LIST_CHANGED` | ✓ | ✓ | ✓ | ✓ | Added 6.0.2 / backported to 1.13.2; available on all versions |
 
 ## 7. Turn-in Detection
@@ -84,7 +84,7 @@ families. Produced during the Multi-Version Foundation sub-project.
 
 | API | Classic 1.14.x | TBC 2.x | MoP 5.x | Retail 12.x | Notes |
 |---|---|---|---|---|---|
-| `QUEST_ACCEPTED` | ~ | ~ | ~ | ✓ | Classic/TBC/MoP: args are (logIndex, questID). Retail 9.0.1+: arg is (questID) only. Added 3.1.0 / backported to 1.13.2 |
+| `QUEST_ACCEPTED` | ~ | ~ | ~ | ✓ | Classic/TBC: arg1 = logIndex only; questID is nil — do not assume arg2 exists. MoP/Retail: arg1 = questID. Added 3.1.0 / backported to 1.13.2 |
 | `QUEST_REMOVED` | ✓ | ✓ | ✓ | ✓ | Added 6.0.2 / backported to 1.13.2. Args: questID, wasReplayQuest (wasReplayQuest added 8.2.5) |
 | `QUEST_LOG_UPDATE` | ✓ | ✓ | ✓ | ✓ | Available on all versions since 1.0.0 |
 | `UNIT_QUEST_LOG_CHANGED` | ✓ | ✓ | ✓ | ✓ | Available on all versions since 1.3.0 |
@@ -95,7 +95,7 @@ families. Produced during the Multi-Version Foundation sub-project.
 |---|---|---|---|---|---|
 | `UnitLevel(unit)` | ✓ | ✓ | ✓ | ✓ | Core API; available on all versions since 1.0.0 |
 | `GetBuildInfo()` | ✓ | ✓ | ✓ | ✓ | Core API; available on all versions. Returns version, build, date, tocVersion |
-| `GetQuestDifficultyColor(level)` | ✓ | ✓ | ✓ | ✓ | Renamed from `GetDifficultyColor` in 3.2.0. FrameXML function; available on all versions |
+| `GetQuestDifficultyColor(level)` | ✓ | ✓ | ✓ | ✓ | Available on all four versions. The name `GetQuestDifficultyColor` is correct for Classic/TBC — no special handling needed. (Renamed from `GetDifficultyColor` in 3.2.0.) |
 | `C_Map.GetAreaInfo(areaID)` | ✓ | ✓ | ✓ | ✓ | Added 8.0.1 / backported to 1.13.2; available on all versions |
 | `IsUnitOnQuest(logIndex, unit)` | ✓ | ✗ | ✓ | ~ | Added 1.3.0. Absent on TBC per runtime testing. Retail: moved to `C_QuestLog.IsUnitOnQuest(questID, unit)` in 9.0.1 (note: takes questID, not logIndex) |
 
