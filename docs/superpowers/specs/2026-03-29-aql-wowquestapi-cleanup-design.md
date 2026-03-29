@@ -267,5 +267,5 @@ Both calls are in the `TrackQuest` method (around line 395).
    ```bash
    grep -n "GetQuestLogSelection()\|GetNumQuestLogEntries()\|GetQuestLogTitle(\|ExpandQuestHeader(\|CollapseQuestHeader(\|SelectQuestLogEntry(" Core/QuestCache.lua
    ```
-   Expected: zero results (all 8 remaining callsites now use `WowQuestAPI.*`).
+   Expected: zero results (all 11 remaining callsites now use `WowQuestAPI.*`).
 7. Version is 2.5.3 in all five toc files.
