@@ -90,7 +90,7 @@ elseif IS_MOP then
     function WowQuestAPI.IsUnitOnQuest(questID, unit)
         local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
         if not logIndex then return nil end
-        return IsUnitOnQuest(logIndex, unit) == true
+        return IsUnitOnQuest(logIndex, unit) ~= nil
     end
 else
     function WowQuestAPI.IsUnitOnQuest(questID, unit)
@@ -98,6 +98,8 @@ else
     end
 end
 ```
+
+**Why `~= nil` instead of `== true`:** Legacy WoW C functions in the 5.x era commonly return `1` (number) rather than Lua `true`. In Lua, `1 == true` evaluates to `false` — the wrong result. Using `~= nil` is safe regardless of whether the global returns `1` or `true`. This matches the `GetQuestLogPushable() ~= nil` pattern already used in WowQuestAPI.lua.
 
 **Why not `IS_CLASSIC_ERA` here:** Classic Era also has `IsUnitOnQuest(logIndex, unit)` (api-compatibility.md shows ✓). However, the IsUnitOnQuest wrapper comment already says "Returns nil on TBC/Classic" and the Classic Era sub-project confirmed no change was needed there. Classic Era support for `IsUnitOnQuest` is deferred — this sub-project adds MoP only.
 
@@ -232,7 +234,7 @@ Insert a new branch **before** the `QUEST_WATCH_LIST_CHANGED` branch:
 | `Core/WowQuestAPI.lua` | Add MoP branch to `IsUnitOnQuest`; update header comment; clean up `GetQuestInfo` else-branch deferred language |
 | `Core/EventEngine.lua` | Update `GetQuestReward` hook comment; register `QUEST_TURNED_IN`; add event handler branch |
 | `AbsoluteQuestLog.toc` + four version tocs | Version bump to 2.5.2 |
-| `CLAUDE.md` | Add version 2.5.2 entry |
+| `CLAUDE.md` | Add version 2.5.2 entry; add `QUEST_TURNED_IN` to the "WoW Events Registered" section |
 
 ## Not In Scope
 
