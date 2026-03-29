@@ -164,7 +164,7 @@ end
 
 ---
 
-## Deliverable 2 — QuestCache.lua: replace 14 direct calls
+## Deliverable 2 — QuestCache.lua: replace 15 direct calls
 
 All replacements are one-for-one. No logic changes. Work top-to-bottom to avoid line-shift confusion.
 
@@ -238,7 +238,7 @@ Both calls are in the `TrackQuest` method (around line 395).
 
 ```
 - Refactor: All direct WoW global calls outside WowQuestAPI.lua replaced with
-  wrapper calls. Files updated: QuestCache.lua (14 callsites), HistoryCache.lua
+  wrapper calls. Files updated: QuestCache.lua (15 callsites), HistoryCache.lua
   (1), EventEngine.lua (1), AbsoluteQuestLog.lua (2), QuestieProvider.lua (1).
 - New wrappers added to WowQuestAPI.lua: GetQuestsCompleted,
   IsQuestWatchedByIndex, IsQuestWatchedById, GetQuestLogTimeLeft,
@@ -255,9 +255,17 @@ Both calls are in the `TrackQuest` method (around line 395).
 3. `IsQuestWatchedByIndex` and `IsQuestWatchedById` both include `and true or false` boolean coercion.
 4. `IsQuestWatchedById` and `GetQuestLinkById` return nil when the quest is not in the player's log.
 5. All callers compile (no Lua syntax errors introduced).
-6. Grep confirms zero remaining direct calls:
+6. Grep confirms zero remaining direct calls — two checks:
+
+   **New wrappers (APIs that had no wrapper before this sub-project):**
    ```bash
-   grep -rn "GetQuestsCompleted\|IsQuestWatched\|GetQuestLogTimeLeft\|GetQuestLink\|GetQuestID\|GetNumQuestWatches\|MAX_WATCHABLE_QUESTS\|C_Map.GetAreaInfo" Core/ AbsoluteQuestLog.lua Providers/ --include="*.lua" | grep -v WowQuestAPI.lua
+   grep -rn "GetQuestsCompleted\|IsQuestWatched\|GetQuestLogTimeLeft\|GetQuestLink\|GetQuestID\(\)\|GetNumQuestWatches\|MAX_WATCHABLE_QUESTS\|C_Map\.GetAreaInfo" Core/ AbsoluteQuestLog.lua Providers/ --include="*.lua" | grep -v WowQuestAPI.lua
    ```
-   Expected: zero results (all calls now go through WowQuestAPI).
+   Expected: zero results.
+
+   **Existing wrappers (APIs that had wrappers but were still called directly in QuestCache.lua):**
+   ```bash
+   grep -n "GetQuestLogSelection()\|GetNumQuestLogEntries()\|GetQuestLogTitle(\|ExpandQuestHeader(\|CollapseQuestHeader(\|SelectQuestLogEntry(" Core/QuestCache.lua
+   ```
+   Expected: zero results (all 8 remaining callsites now use `WowQuestAPI.*`).
 7. Version is 2.5.3 in all five toc files.
