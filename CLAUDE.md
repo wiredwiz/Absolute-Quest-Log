@@ -309,6 +309,10 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.5.1 (March 2026)
+- Docs: Classic Era support made explicit in `Core/WowQuestAPI.lua` — `GetQuestInfo` else-branch comment now names IS_TBC, IS_CLASSIC_ERA, and IS_MOP; header and tier-2 comments updated accordingly. `IsQuestFlaggedCompleted` header comment notes which API each version uses.
+- Docs: `docs/api-compatibility.md` — provider availability table added (Questie/QuestWeaver/NullProvider × 4 version families). QuestWeaver confirmed Classic Era and TBC only (no MoP). Retail chain info confirmed always-unknown (no provider exists).
+
 ### Version 2.5.0 (March 2026)
 - Infrastructure: Multi-toc files added (`AbsoluteQuestLog_Classic.toc` Interface 11508, `AbsoluteQuestLog_TBC.toc` Interface 20505, `AbsoluteQuestLog_Mists.toc` Interface 50503, `AbsoluteQuestLog_Mainline.toc` Interface 120001). AQL now loads without Lua errors on all four active WoW version families. Suffixes confirmed: `_Classic`, `_TBC`, `_Mists`, `_Mainline`.
 - Refactor: Version detection constants (`IS_CLASSIC_ERA`, `IS_TBC`, `IS_MOP`, `IS_RETAIL`) added to `Core/WowQuestAPI.lua`, replacing three ad-hoc `_TOC` numeric comparisons. No behavioral change on TBC (20505). WotLK (30000–39999) and Cata (40000–49999) intentionally out of scope; documented in code.
