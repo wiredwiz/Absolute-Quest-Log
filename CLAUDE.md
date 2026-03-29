@@ -309,6 +309,11 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.5.0 (March 2026)
+- Infrastructure: Multi-toc files added (`AbsoluteQuestLog_Classic.toc` Interface 11508, `AbsoluteQuestLog_TBC.toc` Interface 20505, `AbsoluteQuestLog_Mists.toc` Interface 50503, `AbsoluteQuestLog_Mainline.toc` Interface 120001). AQL now loads without Lua errors on all four active WoW version families. Suffixes confirmed: `_Classic`, `_TBC`, `_Mists`, `_Mainline`.
+- Refactor: Version detection constants (`IS_CLASSIC_ERA`, `IS_TBC`, `IS_MOP`, `IS_RETAIL`) added to `Core/WowQuestAPI.lua`, replacing three ad-hoc `_TOC` numeric comparisons. No behavioral change on TBC (20505). WotLK (30000–39999) and Cata (40000–49999) intentionally out of scope; documented in code.
+- Docs: `docs/api-compatibility.md` — full API compatibility audit covering 9 API categories × 4 version families. All cells researched. Key findings: most legacy quest globals removed in Retail 9.0.1 (moved to `C_QuestLog` namespace); `QUEST_ACCEPTED` on TBC passes logIndex only (not questID); `QUEST_TURNED_IN` does not fire on TBC/Classic.
+
 ### Version 2.4.1 (March 2026)
 - Bug fix: `AQL_QUEST_ACCEPTED` never fired after the 2.3.0 false-positive fix. Root cause: in TBC Classic (Interface 20505), the `QUEST_ACCEPTED` event does not pass a questID — it passes the quest log index (or nothing). The 2.3.0 fix stored `pendingQuestAccepts[logIndex] = true`, but `runDiff` checked `pendingQuestAccepts[questID]`, so they never matched and every accept was silently absorbed. Fix: replaced the per-ID table with a `pendingAcceptCount` integer. `QUEST_ACCEPTED` increments the count; `runDiff` decrements and fires for each new quest while count > 0; `QUEST_REMOVED` resets to 0 to clear stale counts on abandon. Group-join false positives are still blocked (`UNIT_QUEST_LOG_CHANGED` carries no `QUEST_ACCEPTED`, so count stays 0).
 
