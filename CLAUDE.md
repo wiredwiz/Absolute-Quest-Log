@@ -314,7 +314,7 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ## Version History
 
 ### Version 2.5.3 (March 2026)
-- Refactor: All direct WoW global calls outside `WowQuestAPI.lua` replaced with wrapper calls. Files updated: `QuestCache.lua` (15 callsites), `HistoryCache.lua` (1), `EventEngine.lua` (1), `AbsoluteQuestLog.lua` (2), `QuestieProvider.lua` (1).
+- Refactor: All direct WoW global calls outside `WowQuestAPI.lua` replaced with wrapper calls. Files updated: `QuestCache.lua` (15 callsites), `HistoryCache.lua` (1), `EventEngine.lua` (1), `AbsoluteQuestLog.lua` (1), `QuestieProvider.lua` (1).
 - New wrappers added to `WowQuestAPI.lua`: `GetQuestsCompleted`, `IsQuestWatchedByIndex`, `IsQuestWatchedById`, `GetQuestLogTimeLeft`, `GetQuestLinkByIndex`, `GetQuestLinkById`, `GetCurrentDisplayedQuestID`, `GetWatchedQuestCount`, `GetMaxWatchableQuests`, `GetAreaInfo`. Zero behavioral changes.
 
 ### Version 2.5.2 (March 2026)
