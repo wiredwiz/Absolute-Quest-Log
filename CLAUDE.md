@@ -303,11 +303,16 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## WoW Events Registered
 
-`PLAYER_LOGIN` is registered at load time. After `PLAYER_LOGIN` fires, `EventEngine` also registers: `QUEST_ACCEPTED`, `QUEST_REMOVED`, `QUEST_LOG_UPDATE`, `UNIT_QUEST_LOG_CHANGED`, `QUEST_WATCH_LIST_CHANGED`.
+`PLAYER_LOGIN` is registered at load time. After `PLAYER_LOGIN` fires, `EventEngine` also registers: `QUEST_ACCEPTED`, `QUEST_REMOVED`, `QUEST_TURNED_IN`, `QUEST_LOG_UPDATE`, `UNIT_QUEST_LOG_CHANGED`, `QUEST_WATCH_LIST_CHANGED`.
 
 ---
 
 ## Version History
+
+### Version 2.5.2 (March 2026)
+- Feature: MoP Classic (5.x) `IsUnitOnQuest` now functional — resolves questID to logIndex via `GetQuestLogIndex` and calls the MoP global `IsUnitOnQuest(logIndex, unit)`. Returns nil when quest is not in the player's log.
+- Feature: `QUEST_TURNED_IN` event registered and handled in `EventEngine`. Sets `pendingTurnIn` directly on Classic Era, MoP, and Retail. `GetQuestReward` hook retained for TBC compatibility.
+- Fix: Boolean coercion on legacy WoW globals — `GetQuestLogPushable` and `IsQuestWatched` now use explicit `if/then/return` / `and true or false` patterns instead of `~= nil` / `== true` comparisons that could silently return wrong results.
 
 ### Version 2.5.1 (March 2026)
 - Docs: Classic Era support made explicit in `Core/WowQuestAPI.lua` — `GetQuestInfo` else-branch comment now names IS_TBC, IS_CLASSIC_ERA, and IS_MOP; header and tier-2 comments updated accordingly. `IsQuestFlaggedCompleted` header comment notes which API each version uses.
