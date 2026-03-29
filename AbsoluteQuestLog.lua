@@ -683,6 +683,9 @@ end
 -- Returns the questID of the currently selected quest log entry.
 -- Returns nil if nothing is selected (logIndex = 0) or if the selected
 -- entry is a zone header row.
+-- @deprecated Use GetSelectedQuestLogEntryId() instead. This method name
+-- is ambiguous about which selection context it refers to. Will be removed
+-- in a future major version.
 function AQL:GetSelectedQuestId()
     local logIndex = WowQuestAPI.GetQuestLogSelection()
     if not logIndex or logIndex == 0 then
@@ -695,6 +698,31 @@ function AQL:GetSelectedQuestId()
     if isHeader or not questID then
         if self.debug then
             DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] GetSelectedQuestId: selected entry logIndex=" .. tostring(logIndex) .. " is a zone header — returning nil" .. self.RESET)
+        end
+        return nil
+    end
+    return questID
+end
+
+------------------------------------------------------------------------
+-- GetSelectedQuestLogEntryId() → questID or nil
+-- Returns the questID of the currently selected quest log entry.
+-- Returns nil if nothing is selected or if the selected entry is a zone
+-- header row.
+-- Replaces: GetSelectedQuestId() (deprecated)
+------------------------------------------------------------------------
+function AQL:GetSelectedQuestLogEntryId()
+    local logIndex = WowQuestAPI.GetQuestLogSelection()
+    if not logIndex or logIndex == 0 then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] GetSelectedQuestLogEntryId: no entry selected — returning nil" .. self.RESET)
+        end
+        return nil
+    end
+    local _, _, _, isHeader, _, _, _, questID = WowQuestAPI.GetQuestLogTitle(logIndex)
+    if isHeader or not questID then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] GetSelectedQuestLogEntryId: selected entry logIndex=" .. tostring(logIndex) .. " is a zone header — returning nil" .. self.RESET)
         end
         return nil
     end
@@ -889,6 +917,21 @@ function AQL:IsQuestIdShareable(questID)
         return false
     end
     return self:IsQuestIndexShareable(logIndex)
+end
+
+-- SelectQuestLogEntryById(questID)
+-- Selects questID in the quest log WITHOUT refreshing the display.
+-- Use SelectAndShowQuestLogEntryById to select and refresh simultaneously.
+-- No-op with a normal-level debug message if questID is not in the log.
+function AQL:SelectQuestLogEntryById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] SelectQuestLogEntryById: questID=" .. tostring(questID) .. " not in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.SelectQuestLogEntry(logIndex)
 end
 
 -- SelectAndShowQuestLogEntryById(questID)
