@@ -526,8 +526,8 @@ end
 -- GetQuestLogSelection() → logIndex
 -- Returns the currently selected quest log entry index (0 if none selected).
 -- @deprecated Use GetSelectedQuestLogEntryId() instead. Returns a raw logIndex
--- which is not stable across WoW version families. Will be removed in a future
--- major version.
+-- which changes on every quest log update and is not a stable quest identifier.
+-- Will be removed in a future major version.
 function AQL:GetQuestLogSelection()
     return WowQuestAPI.GetQuestLogSelection()
 end
