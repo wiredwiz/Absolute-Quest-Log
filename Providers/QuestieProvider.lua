@@ -181,7 +181,7 @@ function QuestieProvider:GetChainInfo(questID)
         -- Title: prefer Questie's stored name, fall back to C_QuestLog.GetQuestInfo
         -- (returns title string only in TBC 20505), then a numeric placeholder.
         local sq = db.GetQuest(sid)
-        s.title = (sq and sq.name) or C_QuestLog.GetQuestInfo(sid) or ("Quest "..sid)  -- pre-existing; AQL internal migration deferred
+        s.title = (sq and sq.name) or WowQuestAPI.GetQuestInfo(sid) or ("Quest "..sid)
     end
 
     return {

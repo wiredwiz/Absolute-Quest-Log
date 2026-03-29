@@ -64,7 +64,7 @@ function QuestWeaverProvider:GetChainInfo(questID)
 
         -- Title: prefer QuestWeaver stored name, fall back to C_QuestLog.GetQuestInfo
         -- (returns title string only in TBC 20505), then a numeric placeholder.
-        local title = C_QuestLog.GetQuestInfo(sid) or ("Quest "..sid)  -- pre-existing; AQL internal migration deferred
+        local title = WowQuestAPI.GetQuestInfo(sid) or ("Quest "..sid)
         local sqw = qw.Quests[sid]
         if sqw and sqw.name then title = sqw.name end
 
