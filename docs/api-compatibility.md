@@ -119,3 +119,24 @@ Most legacy quest globals were moved to the `C_QuestLog` namespace in Patch 9.0.
 | `QuestLogFrame` | World Map integrated | No standalone frame |
 | `QuestLog_SetSelection()` | `C_QuestLog.SetSelectedQuest()` | FrameXML removed |
 | `QuestLog_Update()` | *(none)* | Auto-updates |
+
+---
+
+## Provider Availability by Version
+
+The AQL provider system (Questie, QuestWeaver, NullProvider) supplies chain info, quest
+type, and prerequisite data that is not available from the WoW client API directly.
+
+| Provider | Classic 1.14.x | TBC 2.x | MoP 5.x | Retail 12.x | Notes |
+|---|---|---|---|---|---|
+| Questie | ✓ | ✓ | ✓ | ✗ | No Retail version exists |
+| QuestWeaver | ✓ | ✓ | ✗ | ✗ | Classic Era and TBC only |
+| NullProvider | ✓ | ✓ | ✓ | ✓ | Always available as fallback |
+
+**Retail note:** Neither Questie nor QuestWeaver exists for Retail. Chain info always
+returns `knownStatus = "unknown"` on Retail. Quest type, level, and objective data are
+available through native `C_QuestLog` APIs without a provider — this is sufficient for
+most AQL functionality on Retail.
+
+**MoP note:** Questie supports MoP Classic. QuestWeaver does not support MoP —
+treat as NullProvider fallback on MoP.
