@@ -14,6 +14,8 @@ local IS_CLASSIC_ERA = _TOC <  20000                   -- 1.14.x: Classic Era, S
 local IS_TBC         = _TOC >= 20000 and _TOC < 30000  -- 2.x: TBC Anniversary (current)
 local IS_MOP         = _TOC >= 50000 and _TOC < 60000  -- 5.x: MoP Classic
 local IS_RETAIL      = _TOC >= 100000                  -- 11.x+: Retail (The War Within+)
+-- Note: WotLK (30000–39999) and Cata (40000–49999) are intentionally not covered.
+-- AQL is unsupported on those clients; the base toc (20505) serves as fallback.
 
 ------------------------------------------------------------------------
 -- WowQuestAPI.GetQuestInfo(questID)
