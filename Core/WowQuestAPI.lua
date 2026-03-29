@@ -94,6 +94,7 @@ end
 ------------------------------------------------------------------------
 -- WowQuestAPI.IsQuestFlaggedCompleted(questID)
 -- Returns bool. True when the quest is in the character's completion history.
+-- Classic Era: uses global IsQuestFlaggedCompleted(). TBC/MoP/Retail: uses C_QuestLog variant.
 ------------------------------------------------------------------------
 
 if IS_TBC or IS_MOP or IS_RETAIL then
