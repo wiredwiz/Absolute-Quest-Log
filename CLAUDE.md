@@ -152,6 +152,7 @@ Methods that interact with the built-in WoW quest log frame.
 | Deprecated Method | Replacement |
 |---|---|
 | `AQL:GetQuestLogSelection()` | `AQL:GetSelectedQuestLogEntryId()` |
+| `AQL:GetSelectedQuestId()` | `AQL:GetSelectedQuestLogEntryId()` |
 | `AQL:IsQuestLogShareable()` | `AQL:IsQuestIdShareable(questID)` |
 | `AQL:SelectQuestLogEntry(logIndex)` | `AQL:SelectQuestLogEntryById(questID)` |
 | `AQL:SetQuestLogSelection(logIndex)` | `AQL:SelectAndShowQuestLogEntryById(questID)` |
@@ -163,7 +164,7 @@ Methods that interact with the built-in WoW quest log frame.
 | Method | Returns | Notes |
 |---|---|---|
 | `AQL:IsQuestIndexShareable(logIndex)` | bool | Save/check/restore; guards against header rows |
-| `AQL:SelectAndShowQuestLogEntryByIndex(logIndex)` | — | Delegates to `SetQuestLogSelection` |
+| `AQL:SelectAndShowQuestLogEntryByIndex(logIndex)` | — | Delegates to `SetQuestLogSelection` (deprecated internally; update callsite when `SetQuestLogSelection` is removed) |
 | `AQL:OpenQuestLogByIndex(logIndex)` | — | Shows log + navigates to logIndex |
 | `AQL:ToggleQuestLogByIndex(logIndex)` | — | Hides if shown+selected; else opens |
 | `AQL:GetSelectedQuestLogEntryId()` | questID or nil | nil if nothing selected or header selected. **Replaces deprecated `GetSelectedQuestId()`** |
