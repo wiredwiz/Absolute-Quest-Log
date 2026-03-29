@@ -37,7 +37,7 @@ AQL has no external addon dependencies. The `Libs\` copies are the sole requirem
 
 | File | Object | Responsibility |
 |---|---|---|
-| `Core\WowQuestAPI.lua` | `WowQuestAPI` (global) | Thin, stateless wrappers around WoW quest globals. All version-specific branching (TBC vs Retail) lives here. No other AQL file references WoW quest globals directly. |
+| `Core\WowQuestAPI.lua` | `WowQuestAPI` (global) | Thin, stateless wrappers around WoW quest globals. All version-specific branching lives here. **All WoW API calls — including those in providers — must go through WowQuestAPI wrappers, no exceptions.** No other AQL file may reference WoW quest globals directly. |
 | `Core\EventEngine.lua` | `AQL.EventEngine` | Owns the hidden WoW event frame. Selects the provider at `PLAYER_LOGIN`, manages deferred provider upgrades, rebuilds `QuestCache` on relevant events, diffs old vs. new state, and fires AQL callbacks. |
 | `Core\QuestCache.lua` | `AQL.QuestCache` | Builds and stores `QuestInfo` snapshots from `C_QuestLog`. `Rebuild()` expands collapsed zone headers before scanning, then re-collapses them. Returns the previous snapshot for diffing. |
 | `Core\HistoryCache.lua` | `AQL.HistoryCache` | Tracks all quests ever completed by this character. Loaded synchronously via `GetQuestsCompleted()` at `PLAYER_LOGIN`; updated incrementally via `MarkCompleted()`. |
@@ -312,6 +312,10 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ---
 
 ## Version History
+
+### Version 2.5.3 (March 2026)
+- Refactor: All direct WoW global calls outside `WowQuestAPI.lua` replaced with wrapper calls. Files updated: `QuestCache.lua` (15 callsites), `HistoryCache.lua` (1), `EventEngine.lua` (1), `AbsoluteQuestLog.lua` (2), `QuestieProvider.lua` (1).
+- New wrappers added to `WowQuestAPI.lua`: `GetQuestsCompleted`, `IsQuestWatchedByIndex`, `IsQuestWatchedById`, `GetQuestLogTimeLeft`, `GetQuestLinkByIndex`, `GetQuestLinkById`, `GetCurrentDisplayedQuestID`, `GetWatchedQuestCount`, `GetMaxWatchableQuests`, `GetAreaInfo`. Zero behavioral changes.
 
 ### Version 2.5.2 (March 2026)
 - Feature: MoP Classic (5.x) `IsUnitOnQuest` now functional — resolves questID to logIndex via `GetQuestLogIndex` and calls the MoP global `IsUnitOnQuest(logIndex, unit)`. Returns nil when quest is not in the player's log.
