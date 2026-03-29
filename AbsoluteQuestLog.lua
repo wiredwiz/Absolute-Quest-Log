@@ -919,10 +919,12 @@ function AQL:IsQuestIdShareable(questID)
     return self:IsQuestIndexShareable(logIndex)
 end
 
+------------------------------------------------------------------------
 -- SelectQuestLogEntryById(questID)
 -- Selects questID in the quest log WITHOUT refreshing the display.
 -- Use SelectAndShowQuestLogEntryById to select and refresh simultaneously.
 -- No-op with a normal-level debug message if questID is not in the log.
+------------------------------------------------------------------------
 function AQL:SelectQuestLogEntryById(questID)
     local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
     if not logIndex then
