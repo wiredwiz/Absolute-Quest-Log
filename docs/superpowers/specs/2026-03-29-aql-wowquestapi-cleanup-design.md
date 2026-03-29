@@ -27,7 +27,7 @@ Every direct WoW global call in the addon must go through a `WowQuestAPI` wrappe
 | File | Change |
 |---|---|
 | `Core/WowQuestAPI.lua` | Add 10 new wrapper functions |
-| `Core/QuestCache.lua` | Replace 14 direct WoW calls with wrapper calls |
+| `Core/QuestCache.lua` | Replace 15 direct WoW calls with wrapper calls |
 | `Core/HistoryCache.lua` | Replace 1 direct WoW call |
 | `Core/EventEngine.lua` | Replace 1 direct WoW call |
 | `AbsoluteQuestLog.lua` | Replace 2 direct WoW calls |
@@ -67,7 +67,7 @@ end
 ------------------------------------------------------------------------
 
 function WowQuestAPI.GetWatchedQuestCount()
-    return GetWatchedQuestCount()
+    return GetNumQuestWatches()
 end
 
 ------------------------------------------------------------------------
