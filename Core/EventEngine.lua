@@ -40,10 +40,12 @@ EventEngine.frame = frame
 local MAX_DEFERRED_UPGRADE_ATTEMPTS = 5
 
 -- QUEST_TURNED_IN does not fire in TBC Classic (Interface 20505).
--- Hook GetQuestReward instead: it fires synchronously when the player clicks
--- the confirm button, before items are transferred. GetQuestID() returns the
--- active questID at this point. This sets pendingTurnIn so that any objective
--- regression events fired during item transfer are suppressed.
+-- Hook GetQuestReward as the turn-in signal for TBC: it fires synchronously
+-- when the player clicks the confirm button, before items are transferred.
+-- GetQuestID() returns the active questID at this point.
+-- On Classic Era, MoP, and Retail, QUEST_TURNED_IN fires and also sets
+-- pendingTurnIn directly (see the event handler below). Both paths are
+-- harmless on versions that fire both; the hook is kept for TBC compatibility.
 -- The hook fires only on confirmation; cancelling the reward screen does not
 -- call GetQuestReward, so pendingTurnIn is never set on cancel.
 hooksecurefunc("GetQuestReward", function()
@@ -406,6 +408,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- Register for quest events now that we're ready.
         frame:RegisterEvent("QUEST_ACCEPTED")
         frame:RegisterEvent("QUEST_REMOVED")
+        frame:RegisterEvent("QUEST_TURNED_IN")
         frame:RegisterEvent("QUEST_LOG_UPDATE")
         frame:RegisterEvent("UNIT_QUEST_LOG_CHANGED")
         frame:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
@@ -438,6 +441,17 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- (e.g. player accepted then immediately abandoned before the diff ran).
         EventEngine.pendingAcceptCount = 0
         handleQuestLogUpdate()
+    elseif event == "QUEST_TURNED_IN" then
+        -- Set pendingTurnIn so objective regression during item transfer is suppressed.
+        -- Do NOT call handleQuestLogUpdate here — QUEST_REMOVED fires next and drives
+        -- the diff that detects quest removal and fires AQL_QUEST_COMPLETED.
+        local questID = ...
+        if questID and questID ~= 0 then
+            EventEngine.pendingTurnIn[questID] = true
+            if AQL.debug then
+                DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] pendingTurnIn set (QUEST_TURNED_IN): questID=" .. tostring(questID) .. AQL.RESET)
+            end
+        end
     elseif event == "QUEST_WATCH_LIST_CHANGED"
         or event == "QUEST_LOG_UPDATE" then
         handleQuestLogUpdate()
