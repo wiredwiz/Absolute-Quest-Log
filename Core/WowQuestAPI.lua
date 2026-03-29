@@ -45,7 +45,7 @@ if IS_RETAIL then
             campaignID     = info.campaignID,
         }
     end
-else  -- IS_TBC, IS_CLASSIC_ERA, and IS_MOP (same log-scan API; MoP sub-project handles MoP-specific improvements)
+else  -- IS_TBC, IS_CLASSIC_ERA, and IS_MOP (same log-scan API on all three versions)
     function WowQuestAPI.GetQuestInfo(questID)
         -- Tier 1: log scan for richer data.
         -- GetQuestLogTitle returns: title, level, suggestedGroup, isHeader,
@@ -146,8 +146,10 @@ end
 
 ------------------------------------------------------------------------
 -- WowQuestAPI.IsUnitOnQuest(questID, unit)
--- Returns bool on Retail (UnitIsOnQuest exists).
--- Returns nil on TBC/Classic (API does not exist).
+-- Returns bool on Retail and MoP.
+-- Returns nil on TBC/Classic Era (API does not exist on TBC; deferred on Classic Era).
+-- MoP: resolves questID → logIndex via GetQuestLogIndex, then calls IsUnitOnQuest(logIndex, unit).
+-- Returns nil on MoP if the quest is not in the player's log (collapsed or absent).
 -- Note: parameter order is (questID, unit) — the opposite of the WoW
 -- global UnitIsOnQuest(unit, questID) — to keep questID-first convention.
 ------------------------------------------------------------------------
@@ -155,6 +157,13 @@ end
 if IS_RETAIL then
     function WowQuestAPI.IsUnitOnQuest(questID, unit)
         return UnitIsOnQuest(unit, questID)
+    end
+elseif IS_MOP then
+    function WowQuestAPI.IsUnitOnQuest(questID, unit)
+        local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+        if not logIndex then return nil end
+        if IsUnitOnQuest(logIndex, unit) then return true end
+        return false
     end
 else
     function WowQuestAPI.IsUnitOnQuest(questID, unit)
@@ -200,7 +209,8 @@ end
 -- Returns true if the currently selected quest can be shared with party members.
 -- Only meaningful when the target quest is already selected.
 function WowQuestAPI.GetQuestLogPushable()
-    return GetQuestLogPushable() ~= nil
+    if GetQuestLogPushable() then return true end
+    return false
 end
 
 -- QuestLog_SetSelection(logIndex)
