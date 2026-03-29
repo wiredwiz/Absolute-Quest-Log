@@ -1,0 +1,25 @@
+## Interface: 120001
+## Title: Lib: AbsoluteQuestLog
+## Notes: A rich quest data library — Retail (Midnight and forward).
+## Author: Thad Ryker
+## Version: 2.4.0
+## X-Category: Library
+## X-Embeds: LibStub, CallbackHandler-1.0
+## IconTexture: Interface\AddOns\AbsoluteQuestLog\Logo.png
+
+# Embedded libraries
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+
+# Core modules
+AbsoluteQuestLog.lua
+Core\WowQuestAPI.lua
+Core\EventEngine.lua
+Core\QuestCache.lua
+Core\HistoryCache.lua
+
+# Extended quest info provider modules
+Providers\Provider.lua
+Providers\QuestieProvider.lua
+Providers\QuestWeaverProvider.lua
+Providers\NullProvider.lua
