@@ -1,6 +1,24 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.5.4 (March 2026)
+---------------------------
+- Feature: AQL:GetSelectedQuestLogEntryId() added — questID-based, unambiguously
+  named replacement for deprecated GetSelectedQuestId(). Identical behavior.
+- Feature: AQL:SelectQuestLogEntryById(questID) added — selects quest log entry
+  without display refresh; questID-based replacement for deprecated
+  SelectQuestLogEntry(logIndex).
+- Deprecation: GetQuestLogSelection, GetSelectedQuestId, IsQuestLogShareable,
+  SelectQuestLogEntry, SetQuestLogSelection, ExpandQuestLogHeader,
+  CollapseQuestLogHeader marked @deprecated. All continue to function.
+  See README.md for migration guide. Will be removed in a future major version.
+- Docs: README.md rewritten as complete consumer-facing API reference with Quick
+  Start examples, full method tables, callback reference, QuestInfo/ChainInfo
+  data structures, and deprecation migration table. Version support updated to
+  reflect Classic Era, TBC, MoP, and Retail (in development).
+- Docs: CLAUDE.md Group 2 thin wrappers split into Preferred and Deprecated
+  sub-sections. ById methods marked as preferred for most consumers.
+
 Version 2.5.3 (March 2026)
 ---------------------------
 - Refactor: All direct WoW global calls outside WowQuestAPI.lua replaced with

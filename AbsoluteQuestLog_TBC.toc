@@ -2,7 +2,7 @@
 ## Title: Lib: AbsoluteQuestLog
 ## Notes: A rich quest data library — TBC Anniversary.
 ## Author: Thad Ryker
-## Version: 2.5.3
+## Version: 2.5.4
 ## X-Category: Library
 ## X-Embeds: LibStub, CallbackHandler-1.0
 ## IconTexture: Interface\AddOns\AbsoluteQuestLog\Logo.png
