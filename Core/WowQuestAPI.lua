@@ -116,6 +116,7 @@ end
 ------------------------------------------------------------------------
 
 function WowQuestAPI.GetQuestsCompleted()
+    if IS_RETAIL then return nil end  -- C_QuestLog.GetAllCompletedQuestIDs() will be added in the Retail sub-project
     return GetQuestsCompleted()
 end
 
@@ -261,6 +262,7 @@ end
 -- GetQuestLogTimeLeft() → number or nil
 -- Returns the time remaining in seconds for the selected quest's timer,
 -- or nil if the selected quest has no timer.
+-- Selection-dependent: call SelectQuestLogEntry(logIndex) first.
 function WowQuestAPI.GetQuestLogTimeLeft()
     return GetQuestLogTimeLeft()
 end
