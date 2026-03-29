@@ -525,6 +525,9 @@ end
 
 -- GetQuestLogSelection() → logIndex
 -- Returns the currently selected quest log entry index (0 if none selected).
+-- @deprecated Use GetSelectedQuestLogEntryId() instead. Returns a raw logIndex
+-- which is not stable across WoW version families. Will be removed in a future
+-- major version.
 function AQL:GetQuestLogSelection()
     return WowQuestAPI.GetQuestLogSelection()
 end
@@ -533,6 +536,9 @@ end
 -- Sets the selected entry without refreshing the quest log display.
 -- Does not emit a debug message — use SetQuestLogSelection for the
 -- display-refreshing version.
+-- @deprecated Use SelectQuestLogEntryById(questID) instead. Takes a raw
+-- logIndex which is not stable across WoW version families. Will be removed
+-- in a future major version.
 function AQL:SelectQuestLogEntry(logIndex)
     WowQuestAPI.SelectQuestLogEntry(logIndex)
 end
@@ -546,6 +552,9 @@ end
 -- operating on a specific quest. This method exists only for callers that
 -- have already managed selection themselves.
 -- Emits no debug message (pass-through; caller manages selection context).
+-- @deprecated Use IsQuestIdShareable(questID) instead. Selection-dependent
+-- with no parameters — fragile by design. Will be removed in a future major
+-- version.
 function AQL:IsQuestLogShareable()
     return WowQuestAPI.GetQuestLogPushable()
 end
@@ -555,6 +564,9 @@ end
 -- Calls WowQuestAPI.QuestLog_SetSelection(logIndex) followed immediately
 -- by WowQuestAPI.QuestLog_Update(). These two calls are always used together;
 -- this is the canonical two-call sequence.
+-- @deprecated Use SelectAndShowQuestLogEntryById(questID) instead. Takes a
+-- raw logIndex which is not stable across WoW version families. Will be
+-- removed in a future major version.
 function AQL:SetQuestLogSelection(logIndex)
     if self.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] SetQuestLogSelection: logIndex=" .. tostring(logIndex) .. self.RESET)
@@ -568,6 +580,9 @@ end
 -- Verifies the entry is a header before acting; emits a normal-level debug
 -- message and returns without expanding if it is not.
 -- Emits a verbose debug message on successful expansion.
+-- @deprecated Use ExpandQuestLogZoneByName(zoneName) instead. Zone name is
+-- the stable identifier; logIndex changes on every quest log update. Will be
+-- removed in a future major version.
 function AQL:ExpandQuestLogHeader(logIndex)
     local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
     if not isHeader then
@@ -587,6 +602,9 @@ end
 -- Verifies the entry is a header before acting; emits a normal-level debug
 -- message and returns without collapsing if it is not.
 -- Emits a verbose debug message on successful collapse.
+-- @deprecated Use CollapseQuestLogZoneByName(zoneName) instead. Zone name is
+-- the stable identifier; logIndex changes on every quest log update. Will be
+-- removed in a future major version.
 function AQL:CollapseQuestLogHeader(logIndex)
     local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
     if not isHeader then
