@@ -10,6 +10,10 @@ WowQuestAPI = WowQuestAPI or {}
 ------------------------------------------------------------------------
 
 local _TOC = select(4, GetBuildInfo())
+local IS_CLASSIC_ERA = _TOC <  20000                   -- 1.14.x: Classic Era, SoD, Hardcore
+local IS_TBC         = _TOC >= 20000 and _TOC < 30000  -- 2.x: TBC Anniversary (current)
+local IS_MOP         = _TOC >= 50000 and _TOC < 60000  -- 5.x: MoP Classic
+local IS_RETAIL      = _TOC >= 100000                  -- 11.x+: Retail (The War Within+)
 
 ------------------------------------------------------------------------
 -- WowQuestAPI.GetQuestInfo(questID)
@@ -21,7 +25,7 @@ local _TOC = select(4, GetBuildInfo())
 -- Retail: single C_QuestLog.GetQuestInfo call returns full info table.
 ------------------------------------------------------------------------
 
-if _TOC >= 100000 then  -- Retail
+if IS_RETAIL then
     function WowQuestAPI.GetQuestInfo(questID)
         local info = C_QuestLog.GetQuestInfo(questID)
         if not info or not info.title then return nil end
@@ -38,7 +42,7 @@ if _TOC >= 100000 then  -- Retail
             campaignID     = info.campaignID,
         }
     end
-else  -- TBC Classic / TBC Anniversary (and Classic Era stub)
+else  -- IS_TBC (IS_CLASSIC_ERA and IS_MOP handled in later sub-projects)
     function WowQuestAPI.GetQuestInfo(questID)
         -- Tier 1: log scan for richer data.
         -- GetQuestLogTitle returns: title, level, suggestedGroup, isHeader,
@@ -89,11 +93,11 @@ end
 -- Returns bool. True when the quest is in the character's completion history.
 ------------------------------------------------------------------------
 
-if _TOC >= 20000 then  -- TBC Classic, TBC Anniversary, Retail
+if IS_TBC or IS_MOP or IS_RETAIL then
     function WowQuestAPI.IsQuestFlaggedCompleted(questID)
         return C_QuestLog.IsQuestFlaggedCompleted(questID) == true
     end
-else  -- Classic Era (future)
+else  -- IS_CLASSIC_ERA
     function WowQuestAPI.IsQuestFlaggedCompleted(questID)
         return IsQuestFlaggedCompleted(questID) == true
     end
@@ -144,7 +148,7 @@ end
 -- global UnitIsOnQuest(unit, questID) — to keep questID-first convention.
 ------------------------------------------------------------------------
 
-if _TOC >= 100000 then  -- Retail
+if IS_RETAIL then
     function WowQuestAPI.IsUnitOnQuest(questID, unit)
         return UnitIsOnQuest(unit, questID)
     end
