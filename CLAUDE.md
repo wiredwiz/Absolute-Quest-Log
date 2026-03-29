@@ -135,21 +135,28 @@ Methods that interact with the built-in WoW quest log frame.
 
 **logIndex note:** logIndex is always a position in the *currently visible* entries. Quests under collapsed zone headers are invisible to the WoW API; `GetQuestLogIndex` returns nil for them.
 
-#### Thin Wrappers
+#### Thin Wrappers — Preferred
 
 | Method | Returns | Notes |
 |---|---|---|
 | `AQL:ShowQuestLog()` | — | Opens the quest log frame |
 | `AQL:HideQuestLog()` | — | Closes the quest log frame |
 | `AQL:IsQuestLogShown()` | bool | True if quest log is visible |
-| `AQL:GetQuestLogSelection()` | logIndex | 0 if nothing selected |
-| `AQL:SelectQuestLogEntry(logIndex)` | — | Sets selection; no display refresh |
-| `AQL:IsQuestLogShareable()` | bool | **Selection-dependent** — only meaningful when correct entry is already selected; prefer `IsQuestIndexShareable` / `IsQuestIdShareable` |
-| `AQL:SetQuestLogSelection(logIndex)` | — | Sets selection + refreshes display (canonical `QuestLog_SetSelection` + `QuestLog_Update` pair) |
-| `AQL:ExpandQuestLogHeader(logIndex)` | — | Guards: no-op + normal debug if not a header |
-| `AQL:CollapseQuestLogHeader(logIndex)` | — | Guards: no-op + normal debug if not a header |
 | `AQL:GetQuestDifficultyColor(level)` | `{r,g,b}` | Fallback to manual delta if native API absent |
 | `AQL:GetQuestLogIndex(questID)` | logIndex or nil | nil if not in log or under collapsed header |
+
+#### Thin Wrappers — Deprecated
+
+> ⚠️ **Deprecated.** These methods expose logIndex or implicit selection state that is not stable across WoW version families. Use the questID-based alternatives shown. They will be removed in a future major version.
+
+| Deprecated Method | Replacement |
+|---|---|
+| `AQL:GetQuestLogSelection()` | `AQL:GetSelectedQuestLogEntryId()` |
+| `AQL:IsQuestLogShareable()` | `AQL:IsQuestIdShareable(questID)` |
+| `AQL:SelectQuestLogEntry(logIndex)` | `AQL:SelectQuestLogEntryById(questID)` |
+| `AQL:SetQuestLogSelection(logIndex)` | `AQL:SelectAndShowQuestLogEntryById(questID)` |
+| `AQL:ExpandQuestLogHeader(logIndex)` | `AQL:ExpandQuestLogZoneByName(zoneName)` |
+| `AQL:CollapseQuestLogHeader(logIndex)` | `AQL:CollapseQuestLogZoneByName(zoneName)` |
 
 #### Compound — ByIndex
 
@@ -159,7 +166,7 @@ Methods that interact with the built-in WoW quest log frame.
 | `AQL:SelectAndShowQuestLogEntryByIndex(logIndex)` | — | Delegates to `SetQuestLogSelection` |
 | `AQL:OpenQuestLogByIndex(logIndex)` | — | Shows log + navigates to logIndex |
 | `AQL:ToggleQuestLogByIndex(logIndex)` | — | Hides if shown+selected; else opens |
-| `AQL:GetSelectedQuestId()` | questID or nil | nil if nothing selected or header selected |
+| `AQL:GetSelectedQuestLogEntryId()` | questID or nil | nil if nothing selected or header selected. **Replaces deprecated `GetSelectedQuestId()`** |
 | `AQL:GetQuestLogEntries()` | array | All visible entries: `{logIndex, isHeader, title, questID, isCollapsed}` |
 | `AQL:GetQuestLogZones()` | array of `{name, isCollapsed}` | Ordered zone header entries; useful for save/restore of collapsed state |
 | `AQL:ExpandAllQuestLogHeaders()` | — | Expands all collapsed headers |
@@ -171,11 +178,14 @@ Methods that interact with the built-in WoW quest log frame.
 
 #### Compound — ById
 
+**Preferred for most consumers.** Use ById methods when you have a questID — questID is stable across WoW version families; logIndex is not.
+
 If questID is not in the active quest log, all ById methods are silent no-ops (false / nothing). A normal-level debug message is emitted.
 
 | Method | Returns | Notes |
 |---|---|---|
 | `AQL:IsQuestIdShareable(questID)` | bool | Resolves logIndex; delegates to `IsQuestIndexShareable` |
+| `AQL:SelectQuestLogEntryById(questID)` | — | Selects without display refresh; no-op + debug if not in log |
 | `AQL:SelectAndShowQuestLogEntryById(questID)` | — | Resolves logIndex; delegates to ByIndex variant |
 | `AQL:OpenQuestLogById(questID)` | — | Resolves logIndex; delegates to ByIndex variant |
 | `AQL:ToggleQuestLogById(questID)` | — | Resolves logIndex; delegates to ByIndex variant |
@@ -312,6 +322,13 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ---
 
 ## Version History
+
+### Version 2.5.4 (March 2026)
+- Feature: `AQL:GetSelectedQuestLogEntryId()` added — questID-based, unambiguously named replacement for deprecated `GetSelectedQuestId()`.
+- Feature: `AQL:SelectQuestLogEntryById(questID)` added — select without display refresh; questID-based replacement for deprecated `SelectQuestLogEntry(logIndex)`.
+- Deprecation: `GetQuestLogSelection`, `GetSelectedQuestId`, `IsQuestLogShareable`, `SelectQuestLogEntry`, `SetQuestLogSelection`, `ExpandQuestLogHeader`, `CollapseQuestLogHeader` marked `@deprecated`. All continue to function; replacements listed in each doc comment and in README.md. Will be removed in a future major version.
+- Docs: README.md rewritten as complete consumer-facing reference with API docs, callback reference, data structures, Quick Start examples, and deprecation migration table. Version support updated to reflect Classic Era, TBC, MoP, and Retail (in development).
+- Docs: CLAUDE.md Group 2 thin wrappers split into Preferred and Deprecated sub-sections. ById section marked as preferred for most consumers.
 
 ### Version 2.5.3 (March 2026)
 - Refactor: All direct WoW global calls outside `WowQuestAPI.lua` replaced with wrapper calls. Files updated: `QuestCache.lua` (15 callsites), `HistoryCache.lua` (1), `EventEngine.lua` (1), `AbsoluteQuestLog.lua` (1), `QuestieProvider.lua` (1).
