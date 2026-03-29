@@ -129,7 +129,7 @@ type, and prerequisite data that is not available from the WoW client API direct
 | Provider | Classic 1.14.x | TBC 2.x | MoP 5.x | Retail 12.x | Notes |
 |---|---|---|---|---|---|
 | Questie | ✓ | ✓ | ✓ | ✗ | No Retail version exists |
-| QuestWeaver | ✓ | ✓ | ? | ✗ | QuestWeaver MoP support unconfirmed |
+| QuestWeaver | ✓ | ✓ | ✗ | ✗ | Classic Era and TBC only |
 | NullProvider | ✓ | ✓ | ✓ | ✓ | Always available as fallback |
 
 **Retail note:** Neither Questie nor QuestWeaver exists for Retail. Chain info always
@@ -137,8 +137,8 @@ returns `knownStatus = "unknown"` on Retail. Quest type, level, and objective da
 available through native `C_QuestLog` APIs without a provider — this is sufficient for
 most AQL functionality on Retail.
 
-**MoP note:** Questie supports MoP Classic. QuestWeaver MoP support is unconfirmed —
-treat as NullProvider fallback until verified in the MoP sub-project.
+**MoP note:** Questie supports MoP Classic. QuestWeaver does not support MoP —
+treat as NullProvider fallback on MoP.
 ```
 
 ---
