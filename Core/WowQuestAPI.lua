@@ -108,6 +108,18 @@ else  -- IS_CLASSIC_ERA
 end
 
 ------------------------------------------------------------------------
+-- WowQuestAPI.GetQuestsCompleted()
+-- Returns the associative table {[questID]=true} of all quests completed
+-- by this character. Same return shape on Classic Era, TBC, and MoP.
+-- Note: Retail uses C_QuestLog.GetAllCompletedQuestIDs() which returns a
+-- sequential array — IS_RETAIL branch will be added in the Retail sub-project.
+------------------------------------------------------------------------
+
+function WowQuestAPI.GetQuestsCompleted()
+    return GetQuestsCompleted()
+end
+
+------------------------------------------------------------------------
 -- WowQuestAPI.GetQuestLogIndex(questID)
 -- Returns the 1-based quest log index or nil if not in the player's log.
 -- Matches on the 8th return value of GetQuestLogTitle(i) (the questID).
@@ -142,6 +154,47 @@ function WowQuestAPI.UntrackQuest(questID)
     if logIndex then
         RemoveQuestWatch(logIndex)
     end
+end
+
+------------------------------------------------------------------------
+-- WowQuestAPI.GetWatchedQuestCount()
+-- Returns the number of quests currently on the watch list.
+------------------------------------------------------------------------
+
+function WowQuestAPI.GetWatchedQuestCount()
+    return GetNumQuestWatches()
+end
+
+------------------------------------------------------------------------
+-- WowQuestAPI.GetMaxWatchableQuests()
+-- Returns the maximum number of quests that can be watched simultaneously.
+-- Wraps the MAX_WATCHABLE_QUESTS global constant as a function for
+-- consistent access through the WowQuestAPI layer.
+------------------------------------------------------------------------
+
+function WowQuestAPI.GetMaxWatchableQuests()
+    return MAX_WATCHABLE_QUESTS
+end
+
+------------------------------------------------------------------------
+-- WowQuestAPI.IsQuestWatchedByIndex(logIndex)
+-- WowQuestAPI.IsQuestWatchedById(questID)
+-- Returns true if the quest is on the watch list, false otherwise.
+-- Explicit boolean coercion: IsQuestWatched returns 1/nil on legacy clients.
+-- ById variant resolves questID → logIndex via GetQuestLogIndex.
+-- Returns nil from ById if the quest is not in the player's log.
+-- Note: Retail uses C_QuestLog.IsQuestWatched(questID) — IS_RETAIL branch
+-- will be added in the Retail sub-project (ById variant will be updated).
+------------------------------------------------------------------------
+
+function WowQuestAPI.IsQuestWatchedByIndex(logIndex)
+    return IsQuestWatched(logIndex) and true or false
+end
+
+function WowQuestAPI.IsQuestWatchedById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then return nil end
+    return IsQuestWatched(logIndex) and true or false
 end
 
 ------------------------------------------------------------------------
@@ -203,6 +256,38 @@ end
 -- Sets the selected entry without refreshing the quest log display.
 function WowQuestAPI.SelectQuestLogEntry(logIndex)
     SelectQuestLogEntry(logIndex)
+end
+
+-- GetQuestLogTimeLeft() → number or nil
+-- Returns the time remaining in seconds for the selected quest's timer,
+-- or nil if the selected quest has no timer.
+function WowQuestAPI.GetQuestLogTimeLeft()
+    return GetQuestLogTimeLeft()
+end
+
+-- GetQuestLinkByIndex(logIndex) → hyperlink string or nil
+-- Returns the chat hyperlink for the quest at logIndex.
+function WowQuestAPI.GetQuestLinkByIndex(logIndex)
+    return GetQuestLink(logIndex)
+end
+
+-- GetQuestLinkById(questID) → hyperlink string or nil
+-- Resolves questID → logIndex, then returns the hyperlink.
+-- Returns nil if the quest is not in the player's log.
+-- Note: Retail equivalent will be added in the Retail sub-project.
+function WowQuestAPI.GetQuestLinkById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then return nil end
+    return GetQuestLink(logIndex)
+end
+
+-- GetCurrentDisplayedQuestID() → number or nil
+-- Returns the questID of the quest currently displayed in the NPC quest dialog.
+-- This covers both accepting a quest from a quest giver and the turn-in reward
+-- screen — any context where a quest is open in the NPC interaction UI.
+-- Only meaningful while an NPC quest dialog is open.
+function WowQuestAPI.GetCurrentDisplayedQuestID()
+    return GetQuestID()
 end
 
 -- GetQuestLogPushable() → bool
@@ -294,4 +379,15 @@ end
 -- Returns the player's current character level.
 function WowQuestAPI.GetPlayerLevel()
     return UnitLevel("player")
+end
+
+------------------------------------------------------------------------
+-- WowQuestAPI.GetAreaInfo(areaID)
+-- Returns the area info table for the given areaID via C_Map.GetAreaInfo.
+-- Available on all four version families (backported to 1.13.2).
+-- Used by QuestieProvider to resolve zone names from Questie's zoneOrSort IDs.
+------------------------------------------------------------------------
+
+function WowQuestAPI.GetAreaInfo(areaID)
+    return C_Map.GetAreaInfo(areaID)
 end
