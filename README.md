@@ -93,21 +93,21 @@ All methods are called on the library handle: `AQL:MethodName(...)`.
 | `AQL:GetQuestsByZone(zone)` | `{[questID]=QuestInfo}` | Returns all quests in the given zone. |
 | `AQL:IsQuestActive(questID)` | bool | True if quest is in the player's active log. |
 | `AQL:IsQuestFinished(questID)` | bool | True if all objectives are complete but the quest has not been turned in. |
-| `AQL:GetQuestType(questID)` | string or nil | One of: `"normal"`, `"elite"`, `"dungeon"`, `"raid"`, `"daily"`, `"pvp"`, `"escort"`. Requires a quest DB provider (Questie or QuestWeaver). |
+| `AQL:GetQuestType(questID)` | string or nil | One of: `"normal"`, `"elite"`, `"dungeon"`, `"raid"`, `"daily"`, `"pvp"`, `"escort"`. Cache-only; returns nil if the quest is not in the active log. |
 
 #### Quest History
 
 | Method | Returns | Description |
 |---|---|---|
 | `AQL:HasCompletedQuest(questID)` | bool | True if this character has ever completed the quest. |
-| `AQL:GetCompletedQuests()` | `{[questID]=true}` | All quests completed by this character this session. |
+| `AQL:GetCompletedQuests()` | `{[questID]=true}` | All quests ever completed by this character (loaded at login from the server's completion record). |
 | `AQL:GetCompletedQuestCount()` | number | Count of completed quests. |
 
 #### Quest Resolution
 
 | Method | Returns | Description |
 |---|---|---|
-| `AQL:GetQuestInfo(questID)` | QuestInfo or nil | Three-tier resolution: cache → WoW log scan → provider DB. Always returns at minimum `{questID, title}` if the quest can be found anywhere. |
+| `AQL:GetQuestInfo(questID)` | QuestInfo or nil | Three-tier resolution: cache → WoW log scan → provider DB. `questID` is always present in the result; `title` is present when any tier finds it but may be nil on a chain-data-only provider result. |
 | `AQL:GetQuestTitle(questID)` | string or nil | Returns the quest title. Delegates to `GetQuestInfo`. |
 | `AQL:GetQuestLink(questID)` | hyperlink or nil | Returns a chat-linkable hyperlink for the quest. |
 
@@ -142,7 +142,7 @@ Requires Questie or QuestWeaver to be installed. Returns `{knownStatus="unknown"
 |---|---|---|
 | `AQL:TrackQuest(questID)` | bool | Adds quest to the watch list. Returns false if the watch cap is already reached. |
 | `AQL:UntrackQuest(questID)` | — | Removes quest from the watch list. |
-| `AQL:IsUnitOnQuest(questID, unit)` | bool or nil | True if the given unit has this quest. Returns nil on TBC (API unavailable). |
+| `AQL:IsUnitOnQuest(questID, unit)` | bool or nil | True if the given unit has this quest. Returns nil on TBC and Classic Era (API unavailable on those versions). |
 
 #### Player & Level
 
@@ -195,7 +195,7 @@ Use these when you already have a logIndex (e.g., from iterating `GetQuestLogEnt
 
 | Method | Returns | Description |
 |---|---|---|
-| `AQL:GetQuestLogEntries()` | array | All visible entries in display order: `{logIndex, isHeader, title, questID, isCollapsed}`. questID is nil for header rows. |
+| `AQL:GetQuestLogEntries()` | array | All visible entries in display order: `{logIndex, isHeader, title, questID, isCollapsed}`. `questID` is nil for header rows; `isCollapsed` is nil (not false) for quest rows. |
 | `AQL:GetQuestLogZones()` | array of `{name, isCollapsed}` | Zone header entries. Useful for save/restore of collapsed state. |
 | `AQL:IsQuestIndexShareable(logIndex)` | bool | True if the quest at logIndex can be shared. Saves/restores selection. |
 | `AQL:SelectAndShowQuestLogEntryByIndex(logIndex)` | — | Selects and refreshes the display. |
@@ -292,7 +292,7 @@ Returned by `GetQuest`, `GetAllQuests`, `GetQuestsByZone`, and callback argument
 }
 ```
 
-`GetQuestInfo` (three-tier resolution) returns at minimum `{questID, title}` for quests not in the active log.
+`GetQuestInfo` (three-tier resolution) always includes `questID`. `title` is included when any resolution tier finds it; it may be nil for quests known only through chain data.
 
 ### ChainInfo
 
