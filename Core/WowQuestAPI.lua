@@ -23,7 +23,8 @@ local IS_RETAIL      = _TOC >= 100000                  -- 11.x+: Retail (The War
 -- Guaranteed fields: questID, title.
 -- Conditional fields (only when quest is in player's log): level,
 --   suggestedGroup, isComplete, zone.
--- TBC: tier-1 log scan (GetQuestLogTitle), tier-2 C_QuestLog.GetQuestInfo.
+-- Classic Era, TBC, and MoP: tier-1 log scan (GetQuestLogTitle),
+--   tier-2 C_QuestLog.GetQuestInfo (returns title string on all three versions).
 -- Retail: single C_QuestLog.GetQuestInfo call returns full info table.
 ------------------------------------------------------------------------
 
@@ -44,7 +45,7 @@ if IS_RETAIL then
             campaignID     = info.campaignID,
         }
     end
-else  -- IS_TBC (IS_CLASSIC_ERA and IS_MOP handled in later sub-projects)
+else  -- IS_TBC, IS_CLASSIC_ERA, and IS_MOP (same log-scan API; MoP sub-project handles MoP-specific improvements)
     function WowQuestAPI.GetQuestInfo(questID)
         -- Tier 1: log scan for richer data.
         -- GetQuestLogTitle returns: title, level, suggestedGroup, isHeader,
@@ -70,7 +71,7 @@ else  -- IS_TBC (IS_CLASSIC_ERA and IS_MOP handled in later sub-projects)
         end
 
         -- Tier 2: quest not in log — title-only fallback.
-        -- C_QuestLog.GetQuestInfo(questID) returns a title string or nil on TBC.
+        -- C_QuestLog.GetQuestInfo(questID) returns a title string or nil on TBC, Classic Era, and MoP.
         local title = C_QuestLog.GetQuestInfo(questID)
         if not title then return nil end
         return { questID = questID, title = title }
