@@ -18,16 +18,16 @@ QuestCache.data = {}
 function QuestCache:Rebuild()
     local new = {}
     local currentZone = nil
-    local originalSelection = GetQuestLogSelection()
+    local originalSelection = WowQuestAPI.GetQuestLogSelection()
 
     -- Phase 1: Collect collapsed zone headers.
     if AQL.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 1 — collecting collapsed headers" .. AQL.RESET)
     end
     local collapsedHeaders = {}
-    local numEntries = GetNumQuestLogEntries()
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
     for i = 1, numEntries do
-        local title, _, _, isHeader, isCollapsed = GetQuestLogTitle(i)
+        local title, _, _, isHeader, isCollapsed = WowQuestAPI.GetQuestLogTitle(i)
         if title and isHeader and isCollapsed then
             table.insert(collapsedHeaders, { index = i, title = title })
         end
@@ -42,21 +42,21 @@ function QuestCache:Rebuild()
         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 2 — expanding headers" .. AQL.RESET)
     end
     for k = #collapsedHeaders, 1, -1 do
-        ExpandQuestHeader(collapsedHeaders[k].index)
+        WowQuestAPI.ExpandQuestHeader(collapsedHeaders[k].index)
     end
 
     -- Phase 3: Full rebuild — all quests now visible.
     if AQL.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 3 — building entries" .. AQL.RESET)
     end
-    numEntries = GetNumQuestLogEntries()
+    numEntries = WowQuestAPI.GetNumQuestLogEntries()
     for i = 1, numEntries do
         -- TBC 20505: C_QuestLog.GetInfo() does not exist; use GetQuestLogTitle() global.
         -- Returns: title, level, suggestedGroup, isHeader, isCollapsed, isComplete,
         --          frequency, questID, startEvent, displayQuestID, isOnMap, hasLocalPOI,
         --          isTask, isBounty, isStory, isHidden, isScaling
         local title, level, suggestedGroup, isHeader, _, isComplete, _, questID =
-            GetQuestLogTitle(i)
+            WowQuestAPI.GetQuestLogTitle(i)
         if title then
             local info = {
                 title          = title,
@@ -96,16 +96,16 @@ function QuestCache:Rebuild()
             collapsedTitles[h.title] = true
         end
         local toCollapse = {}
-        numEntries = GetNumQuestLogEntries()
+        numEntries = WowQuestAPI.GetNumQuestLogEntries()
         for i = 1, numEntries do
-            local title, _, _, isHeader = GetQuestLogTitle(i)
+            local title, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(i)
             if title and isHeader and collapsedTitles[title] then
                 table.insert(toCollapse, i)
             end
         end
         -- Collapse back-to-front to preserve earlier indices.
         for k = #toCollapse, 1, -1 do
-            CollapseQuestHeader(toCollapse[k])
+            WowQuestAPI.CollapseQuestHeader(toCollapse[k])
         end
     end
 
@@ -113,7 +113,7 @@ function QuestCache:Rebuild()
     if AQL.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 5 — restoring selection" .. AQL.RESET)
     end
-    SelectQuestLogEntry(originalSelection or 0)
+    WowQuestAPI.SelectQuestLogEntry(originalSelection or 0)
 
     local old = self.data
     self.data = new
@@ -132,20 +132,20 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     -- Timer: requires selecting the quest log entry.
     -- SelectQuestLogEntry briefly changes quest log UI selection; this is safe
     -- to do during cache rebuild since it is instantaneous and non-destructive.
-    SelectQuestLogEntry(logIndex)
-    local rawTimer = GetQuestLogTimeLeft()
+    WowQuestAPI.SelectQuestLogEntry(logIndex)
+    local rawTimer = WowQuestAPI.GetQuestLogTimeLeft()
     local timerSeconds = (rawTimer and rawTimer > 0) and rawTimer or nil
 
     -- Quest link: prefer the WoW native API; construct manually if it returns nil
     -- so every QuestCache entry has a valid hyperlink regardless of client version.
-    local link = GetQuestLink(logIndex)
+    local link = WowQuestAPI.GetQuestLinkByIndex(logIndex)
     if not link then
         link = string.format("|cFFFFD200|Hquest:%d:%d|h[%s]|h|r",
             questID, info.level or 0, info.title or ("Quest " .. questID))
     end
 
     -- isTracked: IsQuestWatched takes a quest log index.
-    local isTracked = IsQuestWatched(logIndex) and true or false
+    local isTracked = WowQuestAPI.IsQuestWatchedByIndex(logIndex)
 
     -- Objectives.
     -- C_QuestLog.GetQuestObjectives returns per-objective: text, type, finished,
@@ -153,7 +153,7 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     -- count suffix (e.g. "Tainted Ooze killed: 4/10" → name = "Tainted Ooze killed").
     -- For event/log types with no count, name equals the full text.
     local objectives = {}
-    local rawObjs = C_QuestLog.GetQuestObjectives(questID)
+    local rawObjs = WowQuestAPI.GetQuestObjectives(questID)
     if rawObjs then
         for idx, obj in ipairs(rawObjs) do
             local text = obj.text or ""
