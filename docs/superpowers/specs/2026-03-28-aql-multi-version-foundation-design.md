@@ -16,7 +16,9 @@ No behavioral changes to existing TBC functionality. After this sub-project, AQL
 
 ## Context
 
-AQL currently targets Interface 20505 (TBC Anniversary) exclusively. `WowQuestAPI.lua` already contains a `_TOC = select(4, GetBuildInfo())` version detection pattern and two ad-hoc branches (`_TOC >= 100000` for Retail, `_TOC >= 20000` for TBC/Retail). The existing abstraction — all WoW API calls routed through `WowQuestAPI.lua`, no raw WoW globals elsewhere — means most future version-specific work lands in that one file.
+AQL currently targets Interface 20505 (TBC Anniversary) exclusively. `WowQuestAPI.lua` already contains a `_TOC = select(4, GetBuildInfo())` version detection pattern and three ad-hoc branches: `_TOC >= 100000` appears twice (for `GetQuestInfo` and `IsUnitOnQuest`) and `_TOC >= 20000` once (for `IsQuestFlaggedCompleted`). The existing abstraction — all WoW API calls routed through `WowQuestAPI.lua`, no raw WoW globals elsewhere — means most future version-specific work lands in that one file.
+
+**Out-of-scope version families:** WotLK Classic (3.x) and Cataclysm Classic (4.x) are not target versions for this project. Their TOC ranges (30000–49999) are intentionally not covered by any `IS_*` constant. If AQL is loaded on those clients it falls back to the base `AbsoluteQuestLog.toc` (Interface 20505) and is unsupported. The `IS_TBC` upper bound of `< 30000` captures this gap cleanly.
 
 **Target version families:**
 
@@ -37,13 +39,16 @@ Five `.toc` files in the addon root. Each has the same `# file list` section as 
 
 | File | Interface | Notes field |
 |---|---|---|
-| `AbsoluteQuestLog.toc` | 20505 | Keep as-is; base fallback for TBC Anniversary |
+| `AbsoluteQuestLog.toc` | 20505 | Keep as-is; base fallback |
 | `AbsoluteQuestLog_Classic.toc` | 11503 | Classic Era, Season of Discovery, Hardcore |
-| `AbsoluteQuestLog_BCC.toc` | 20505 | TBC Anniversary (explicit suffix version) |
-| `AbsoluteQuestLog_MoP.toc` | 50500 | MoP Classic — verify exact interface number |
-| `AbsoluteQuestLog_Mainline.toc` | 110107 | Retail — verify exact interface number |
+| `AbsoluteQuestLog_BCC.toc` | 20505 | TBC Anniversary — **verify suffix is correct for Anniversary client** |
+| `AbsoluteQuestLog_MoP.toc` | TBD | MoP Classic — **verify exact interface number** |
+| `AbsoluteQuestLog_Mainline.toc` | TBD | Retail — **verify exact interface number** |
 
-**Interface numbers to verify before committing:** MoP Classic and Retail interface numbers must be confirmed against the current patch. Look these up from the Blizzard addon dev documentation or `GetBuildInfo()` output on live clients. The `_Classic` suffix (11503) and `_BCC` suffix (20505) are known-stable.
+**Interface numbers and suffix names to verify before committing:**
+- `_BCC`: This suffix was introduced for the original TBC Classic (2021). TBC Anniversary may use the same suffix or a different one — confirm against Blizzard's current multi-toc documentation or a known working addon on Anniversary servers. If `_BCC` is not the correct Anniversary suffix, the base `AbsoluteQuestLog.toc` (20505) will serve as the fallback and a corrected suffixed toc can be added.
+- `_MoP`: Confirm the exact interface number from `GetBuildInfo()` on a live MoP Classic client or Blizzard's patch notes.
+- `_Mainline`: Confirm the current Retail interface number; this changes each patch. Use the most recent patch number at time of implementation.
 
 All five toc files load the same Lua files in the same order as the current toc. No new Lua files are introduced by this deliverable.
 
@@ -63,13 +68,15 @@ local IS_MOP         = _TOC >= 50000 and _TOC < 60000  -- 5.x: MoP Classic
 local IS_RETAIL      = _TOC >= 100000                  -- 11.x+: Retail (The War Within+)
 ```
 
-**Existing branches to update:**
+**Existing branches to update (all three):**
 
-| Current expression | Replace with |
-|---|---|
-| `if _TOC >= 100000 then` | `if IS_RETAIL then` |
-| `else  -- TBC Classic / TBC Anniversary (and Classic Era stub)` comment | `else  -- IS_TBC (IS_CLASSIC_ERA and IS_MOP handled in later sub-projects)` |
-| `if _TOC >= 20000 then` | `if IS_TBC or IS_MOP or IS_RETAIL then` |
+| Location in `WowQuestAPI.lua` | Current expression | Replace with |
+|---|---|---|
+| `GetQuestInfo` (line ~24) | `if _TOC >= 100000 then` | `if IS_RETAIL then` |
+| `IsQuestFlaggedCompleted` (line ~92) | `if _TOC >= 20000 then` | `if IS_TBC or IS_MOP or IS_RETAIL then` |
+| `IsUnitOnQuest` (line ~147) | `if _TOC >= 100000 then` | `if IS_RETAIL then` |
+
+The `else` comment on the `GetQuestInfo` branch should be updated from `-- TBC Classic / TBC Anniversary (and Classic Era stub)` to `-- IS_TBC (IS_CLASSIC_ERA and IS_MOP handled in later sub-projects)`.
 
 These constants are **local to `WowQuestAPI.lua`**. Nothing outside this file branches on version — all version differences are encapsulated inside `WowQuestAPI` wrappers. If any future code outside `WowQuestAPI.lua` needs version-specific behavior, it gets a new wrapper, not a raw `_TOC` check.
 
@@ -112,7 +119,7 @@ Any cell that remains `?` at the end of this sub-project must have a comment in 
 
 | File | Change |
 |---|---|
-| `Core/WowQuestAPI.lua` | Add four named version constants; replace two ad-hoc `_TOC` comparisons |
+| `Core/WowQuestAPI.lua` | Add four named version constants; replace three ad-hoc `_TOC` comparisons |
 
 ## Files Created
 
