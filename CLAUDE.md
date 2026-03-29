@@ -12,6 +12,10 @@
 
 > **Versioning Rule:** The major version number should never be changed by Claude unless explicitly instructed to do so. The first time the library is modified on any given day, the minor version number should be incremented and the revision number should be reset to 0. Any extra changes occurring within the same day should increment the revision number only, unless explicitly instructed otherwise.
 
+> **Changelog Rule:** After every version bump, update `changelog.txt` in the project root with the new version entry (same content as the Version History entry added to this file). If `changelog.txt` does not exist, create it. The file should list versions in reverse chronological order, newest first.
+
+> **Task List Rule:** After completing each task or sub-task, immediately mark it as completed in the visual task list (TaskUpdate with status=completed). Mark tasks as in_progress before starting them. Never leave the task list showing stale pending/in_progress states — misleading task display is not productive. Delete tasks that were created in a prior session and are no longer relevant.
+
 ---
 
 ## Architecture
