@@ -139,10 +139,12 @@ end
 Add after `GetQuestLinkById`:
 
 ```lua
--- GetQuestID() → number or nil
--- Returns the questID of the quest currently displayed in the reward UI.
--- Only meaningful inside a GetQuestReward hook (TBC turn-in detection).
-function WowQuestAPI.GetQuestID()
+-- GetCurrentDisplayedQuestID() → number or nil
+-- Returns the questID of the quest currently displayed in the NPC quest dialog.
+-- This covers both accepting a quest from a quest giver and the turn-in reward
+-- screen — any context where a quest is open in the NPC interaction UI.
+-- Only meaningful while an NPC quest dialog is open.
+function WowQuestAPI.GetCurrentDisplayedQuestID()
     return GetQuestID()
 end
 ```
@@ -202,7 +204,7 @@ All replacements are one-for-one. No logic changes. Work top-to-bottom to avoid 
 
 | Line | Current | Replacement |
 |---|---|---|
-| ~52 | `GetQuestID()` | `WowQuestAPI.GetQuestID()` |
+| ~52 | `GetQuestID()` | `WowQuestAPI.GetCurrentDisplayedQuestID()` |
 
 This call is inside `hooksecurefunc("GetQuestReward", ...)`, which only fires on TBC. The wrapper is a transparent passthrough on all versions.
 
@@ -242,8 +244,8 @@ Both calls are in the `TrackQuest` method (around line 395).
   (1), EventEngine.lua (1), AbsoluteQuestLog.lua (2), QuestieProvider.lua (1).
 - New wrappers added to WowQuestAPI.lua: GetQuestsCompleted,
   IsQuestWatchedByIndex, IsQuestWatchedById, GetQuestLogTimeLeft,
-  GetQuestLinkByIndex, GetQuestLinkById, GetQuestID, GetNumQuestWatches,
-  GetMaxWatchableQuests, GetAreaInfo. Zero behavioral changes.
+  GetQuestLinkByIndex, GetQuestLinkById, GetCurrentDisplayedQuestID,
+  GetNumQuestWatches, GetMaxWatchableQuests, GetAreaInfo. Zero behavioral changes.
 ```
 
 ---
