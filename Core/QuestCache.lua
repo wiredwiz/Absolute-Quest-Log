@@ -168,21 +168,25 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
         end
     end
 
-    -- Provider data (chain/type/faction).
-    -- AQL.provider may be nil during the very first Rebuild before EventEngine
-    -- has run provider selection. Nil-guard here; the next rebuild after
-    -- PLAYER_LOGIN will have a provider set.
+    -- Provider data (chain/type/faction) routed through capability slots.
+    -- AQL.providers may be nil during the very first Rebuild before EventEngine
+    -- runs provider selection. Nil-guards here; the next rebuild after
+    -- PLAYER_LOGIN will have providers set.
     local chainInfo = { knownStatus = AQL.ChainStatus.Unknown }
     local questType, questFaction
-    local provider = AQL.provider
-    if provider then
-        local ok, result = pcall(provider.GetChainInfo, provider, questID)
-        if ok and result then chainInfo = result end
 
-        local ok2, result2 = pcall(provider.GetQuestType, provider, questID)
+    local chainProvider = AQL.providers and AQL.providers[AQL.Capability.Chain]
+    if chainProvider then
+        local ok, result = pcall(chainProvider.GetChainInfo, chainProvider, questID)
+        if ok and result then chainInfo = result end
+    end
+
+    local infoProvider = AQL.providers and AQL.providers[AQL.Capability.QuestInfo]
+    if infoProvider then
+        local ok2, result2 = pcall(infoProvider.GetQuestType, infoProvider, questID)
         if ok2 then questType = result2 end
 
-        local ok3, result3 = pcall(provider.GetQuestFaction, provider, questID)
+        local ok3, result3 = pcall(infoProvider.GetQuestFaction, infoProvider, questID)
         if ok3 then questFaction = result3 end
     end
 
