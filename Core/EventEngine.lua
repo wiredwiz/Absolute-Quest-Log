@@ -78,9 +78,9 @@ local _PROVIDER_PRIORITY = nil
 local function getProviderPriority()
     if not _PROVIDER_PRIORITY then
         _PROVIDER_PRIORITY = {
-            [AQL.Capability.Chain]        = { AQL.QuestieProvider, AQL.QuestWeaverProvider },
-            [AQL.Capability.QuestInfo]    = { AQL.QuestieProvider, AQL.QuestWeaverProvider },
-            [AQL.Capability.Requirements] = { AQL.QuestieProvider },
+            [AQL.Capability.Chain]        = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.BtWQuestsProvider },
+            [AQL.Capability.QuestInfo]    = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.BtWQuestsProvider },
+            [AQL.Capability.Requirements] = { AQL.QuestieProvider, AQL.BtWQuestsProvider },
         }
     end
     return _PROVIDER_PRIORITY
