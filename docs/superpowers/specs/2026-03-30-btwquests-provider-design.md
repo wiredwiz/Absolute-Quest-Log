@@ -64,6 +64,31 @@ Grail's slot in Requirements (between Questie and BtWQuests) is reserved for Pha
 
 ---
 
+## Module-Level Constants
+
+All literal values that appear more than once, or whose origin is non-obvious, are defined as module-local constants at the top of `BtWQuestsProvider.lua`:
+
+```lua
+-- Item type string for quest steps. BtWQuests has no exported constant for this.
+local ITEM_TYPE_QUEST = "quest"
+
+-- Faction condition IDs used in chain.restrictions arrays.
+-- Registered in BtWQuestsDatabase.lua via Database:AddCondition(923/924, ...).
+-- BtWQuests exports no named constant for these numeric IDs.
+local CONDITION_ID_HORDE    = 923
+local CONDITION_ID_ALLIANCE = 924
+
+-- Faction string values. BtWQuests exports these as:
+--   BtWQuests.Constant.Faction.Horde    = "Horde"
+--   BtWQuests.Constant.Faction.Alliance = "Alliance"
+-- We reference those exports at runtime rather than duplicating the strings,
+-- so the string literals appear in exactly one place.
+```
+
+`ITEM_TYPE_QUEST` is used wherever `item.type` is compared (step extraction, reverse index scan). `CONDITION_ID_HORDE`/`CONDITION_ID_ALLIANCE` are used only in `decodeFaction`. The faction string values are read from `BtWQuests.Constant.Faction.*` at call time rather than cached locally — they are stable for the session.
+
+---
+
 ## BtWQuests Data Structure
 
 ```lua
@@ -116,7 +141,7 @@ Lookup algorithm (`findChainKey(questID)`):
 
 1. Return `_questToChain[questID]` if present (O(1) hit).
 2. If `_fullyIndexed`, return nil (quest not in BtWQuests).
-3. Iterate `BtWQuests.Database.Chains`, skipping keys in `_scannedChains`. Skip any entry whose value is not a table (guards against non-chain metadata stored at the top level of the Chains table). For each unscanned chain, iterate `items[]` and for every quest-type item add ALL candidate questIDs to `_questToChain`: `item.id` (single), every entry in `item.ids` (OR variants), and every entry in `item.variations`. All map to the same chainKey. Mark chain as scanned. Stop as soon as `_questToChain[questID]` is populated.
+3. Iterate `BtWQuests.Database.Chains`, skipping keys in `_scannedChains`. Skip any entry whose value is not a table (guards against non-chain metadata stored at the top level of the Chains table). For each unscanned chain, iterate `items[]` and for every item where `item.type == ITEM_TYPE_QUEST` add ALL candidate questIDs to `_questToChain`: `item.id` (single), every entry in `item.ids` (OR variants), and every entry in `item.variations`. All map to the same chainKey. Mark chain as scanned. Stop as soon as `_questToChain[questID]` is populated.
 4. If all chains exhausted without finding questID, set `_fullyIndexed = true`, return nil.
 
 The index is built incrementally on demand. A questID in an early-accessed chain is found after scanning only a small portion of the database. The full index is never built unless the player looks up quests across many unrelated chains.
@@ -163,7 +188,7 @@ end
 local function extractQuestIDs(items, lookupQuestID)
     local result = {}
     for _, item in ipairs(items) do
-        if item.type == "quest" then
+        if item.type == ITEM_TYPE_QUEST then
             local qid = resolveStepQuestID(item, lookupQuestID)
             if qid then
                 table.insert(result, { questID = qid })
@@ -331,17 +356,16 @@ end
 **Faction restriction encoding (confirmed from BtWQuests source):** `chain.restrictions` is an array. Faction is encoded as either numeric condition IDs (923 = Horde, 924 = Alliance) or table entries of the form `{type="faction", id="Horde"}` / `{type="faction", id="Alliance"}`. Both formats appear in BtWQuests data. The implementation iterates the restrictions array and checks for either form:
 
 ```lua
-local HORDE_CONDITION    = 923
-local ALLIANCE_CONDITION = 924
-
+-- CONDITION_ID_HORDE and CONDITION_ID_ALLIANCE defined at module top (see Module-Level Constants).
 local function decodeFaction(restrictions)
     if type(restrictions) ~= "table" then return nil end
+    local factionConst = BtWQuests.Constant.Faction   -- "Horde" / "Alliance" strings
     for _, r in ipairs(restrictions) do
-        if r == HORDE_CONDITION then return AQL.Faction.Horde end
-        if r == ALLIANCE_CONDITION then return AQL.Faction.Alliance end
+        if r == CONDITION_ID_HORDE    then return AQL.Faction.Horde    end
+        if r == CONDITION_ID_ALLIANCE then return AQL.Faction.Alliance end
         if type(r) == "table" and r.type == "faction" then
-            if r.id == "Horde"    then return AQL.Faction.Horde    end
-            if r.id == "Alliance" then return AQL.Faction.Alliance end
+            if r.id == factionConst.Horde    then return AQL.Faction.Horde    end
+            if r.id == factionConst.Alliance then return AQL.Faction.Alliance end
         end
     end
     return nil
