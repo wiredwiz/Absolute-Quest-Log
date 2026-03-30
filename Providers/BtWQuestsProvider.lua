@@ -170,4 +170,72 @@ function BtWQuestsProvider:Validate()
     return true
 end
 
+------------------------------------------------------------------------
+-- Chain capability
+------------------------------------------------------------------------
+
+function BtWQuestsProvider:GetChainInfo(questID)
+    local chainKey = findChainKey(questID)
+    if not chainKey then
+        return { knownStatus = AQL.ChainStatus.NotAChain }
+    end
+
+    local chain = BtWQuests.Database.Chains[chainKey]
+    if not chain then
+        -- chainKey was indexed but chain is now missing — stale index entry.
+        return { knownStatus = AQL.ChainStatus.Unknown }
+    end
+
+    local steps = extractQuestIDs(chain.items or {}, questID)
+    -- Chains that yield fewer than 2 quest steps after filtering (e.g. chains
+    -- composed mostly of NPC/cutscene items) are not surfaced as chains.
+    if #steps < 2 then
+        return { knownStatus = AQL.ChainStatus.NotAChain }
+    end
+
+    local aqlChainID = steps[1].questID
+
+    -- stepNum: resolveStepQuestID prioritises questID itself as the representative
+    -- for its step, so comparing steps[i].questID == questID is safe.
+    local stepNum = nil
+    for i, s in ipairs(steps) do
+        if s.questID == questID then stepNum = i; break end
+    end
+
+    -- Annotate each step with title and status.
+    for i, s in ipairs(steps) do
+        local sid = s.questID
+        if AQL.HistoryCache and AQL.HistoryCache:HasCompleted(sid) then
+            s.status = AQL.StepStatus.Completed
+        elseif AQL.QuestCache and AQL.QuestCache:Get(sid) then
+            local q = AQL.QuestCache:Get(sid)
+            if q.isFailed then
+                s.status = AQL.StepStatus.Failed
+            elseif q.isComplete then
+                s.status = AQL.StepStatus.Finished
+            else
+                s.status = AQL.StepStatus.Active
+            end
+        else
+            local prev = steps[i - 1]
+            local prevDone = prev
+                and AQL.HistoryCache
+                and AQL.HistoryCache:HasCompleted(prev.questID)
+            s.status = (i == 1 or prevDone)
+                and AQL.StepStatus.Available
+                or  AQL.StepStatus.Unavailable
+        end
+        s.title = WowQuestAPI.GetQuestInfo(sid) or ("Quest " .. sid)
+    end
+
+    return {
+        knownStatus = AQL.ChainStatus.Known,
+        chainID     = aqlChainID,
+        step        = stepNum,
+        length      = #steps,
+        steps       = steps,
+        provider    = AQL.Provider.BtWQuests,
+    }
+end
+
 AQL.BtWQuestsProvider = BtWQuestsProvider
