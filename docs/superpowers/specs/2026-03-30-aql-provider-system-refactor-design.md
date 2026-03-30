@@ -101,9 +101,11 @@ Defined at the top of `EventEngine.lua`. First available and valid provider per 
 local PROVIDER_PRIORITY = {
     [AQL.Capability.Chain]        = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.BtWQuestsProvider },
     [AQL.Capability.QuestInfo]    = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.GrailProvider },
-    [AQL.Capability.Requirements] = { AQL.QuestieProvider, AQL.GrailProvider, AQL.QuestWeaverProvider },
+    [AQL.Capability.Requirements] = { AQL.QuestieProvider, AQL.GrailProvider },
 }
 ```
+
+QuestWeaver is excluded from Requirements — it only exposes `min_level` and does not satisfy the full requirements contract.
 
 New providers register themselves here when implemented. Note: `AQL.BtWQuestsProvider` and `AQL.GrailProvider` are nil until Phase 2 — `selectProviders()` nil-checks each entry.
 
@@ -181,7 +183,7 @@ Fires once per capability after the deferred upgrade window closes with that buc
 ```
 [AQL] WARNING: No quest chain provider found. Install one of: Questie, QuestWeaver, BtWQuests.
 [AQL] WARNING: No quest info provider found. Install one of: Questie, QuestWeaver, Grail.
-[AQL] WARNING: No requirements provider found. Install one of: Questie, QuestWeaver, Grail.
+[AQL] WARNING: No requirements provider found. Install one of: Questie, Grail.
 ```
 
 Only fires if the capability is genuinely unresolved — no message if a working provider is found.
