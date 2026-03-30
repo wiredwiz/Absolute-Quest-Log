@@ -9,11 +9,28 @@ if not AQL then return end
 
 local QuestWeaverProvider = {}
 
+QuestWeaverProvider.addonName    = "QuestWeaver"
+QuestWeaverProvider.capabilities = {
+    AQL.Capability.Chain,
+    AQL.Capability.QuestInfo,
+    -- Requirements excluded: QuestWeaver only exposes min_level, not the full requirements contract.
+}
+
+-- IsAvailable: QuestWeaver global table is present.
+-- Validate() handles the structural readiness check.
 function QuestWeaverProvider:IsAvailable()
+    return type(_G["QuestWeaver"]) == "table"
+end
+
+function QuestWeaverProvider:Validate()
     local qw = _G["QuestWeaver"]
-    return type(qw) == "table"
-        and type(qw.Quests) == "table"
-        and next(qw.Quests) ~= nil
+    if type(qw) ~= "table" then return false, "QuestWeaver global missing" end
+    if type(qw.Quests) ~= "table" then return false, "QuestWeaver.Quests missing" end
+    -- QuestWeaver populates qw.Quests synchronously at load time (unlike Questie's async init).
+    -- An empty Quests table here means QuestWeaver is broken, not "not yet ready".
+    local sample = next(qw.Quests)
+    if sample == nil then return false, "QuestWeaver.Quests is empty" end
+    return true
 end
 
 function QuestWeaverProvider:GetChainInfo(questID)
@@ -100,8 +117,8 @@ function QuestWeaverProvider:GetQuestFaction(questID)
 end
 
 function QuestWeaverProvider:GetQuestBasicInfo(questID)
-    if not self:IsAvailable() then return nil end
     local qw = _G["QuestWeaver"]
+    if not qw or not qw.Quests then return nil end
     local quest = qw.Quests[questID]
     if not quest then return nil end
     return {
@@ -113,7 +130,6 @@ function QuestWeaverProvider:GetQuestBasicInfo(questID)
 end
 
 function QuestWeaverProvider:GetQuestRequirements(questID)
-    if not self:IsAvailable() then return nil end
     local qw = _G["QuestWeaver"]
     local quest = qw.Quests and qw.Quests[questID]
     if not quest then return nil end

@@ -18,6 +18,13 @@ local TAG_ELITE   = 1
 local TAG_RAID    = 62
 local TAG_DUNGEON = 81
 
+QuestieProvider.addonName    = "Questie"
+QuestieProvider.capabilities = {
+    AQL.Capability.Chain,
+    AQL.Capability.QuestInfo,
+    AQL.Capability.Requirements,
+}
+
 -- Returns the live QuestieDB module reference, or nil if Questie is not loaded
 -- or its database has not yet been compiled (Initialize() not yet run).
 -- pcall guards against ImportModule calling error() when the module is not
@@ -33,9 +40,25 @@ local function getDB()
     return db
 end
 
--- Returns true if Questie is available and the provider can be used.
+-- IsAvailable: Questie global loader is present and exposes ImportModule.
+-- Validate() handles the deeper structural and initialization checks.
 function QuestieProvider:IsAvailable()
-    return getDB() ~= nil
+    return type(QuestieLoader) == "table"
+        and type(QuestieLoader.ImportModule) == "function"
+end
+
+function QuestieProvider:Validate()
+    if type(QuestieLoader) ~= "table" then return false, "QuestieLoader missing" end
+    if type(QuestieLoader.ImportModule) ~= "function" then return false, "ImportModule missing" end
+    local ok, db = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieDB")
+    if not ok or not db then return false, "QuestieDB unavailable" end
+    if type(db.GetQuest) ~= "function" then return false, "GetQuest missing" end
+    -- QuestPointers is nil during Questie's async init (~3 s after PLAYER_LOGIN).
+    -- This causes Validate() to return false during the deferred upgrade retry window,
+    -- which is treated as a silent retry (no notification). Once Questie finishes
+    -- initializing, Validate() returns true and the provider is selected.
+    if db.QuestPointers == nil then return false, "QuestPointers nil (not yet initialized)" end
+    return true
 end
 
 -- Lazy reverse-index: reverseChain[N] = questID whose nextQuestInChain == N.
