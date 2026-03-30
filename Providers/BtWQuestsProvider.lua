@@ -225,7 +225,8 @@ function BtWQuestsProvider:GetChainInfo(questID)
                 and AQL.StepStatus.Available
                 or  AQL.StepStatus.Unavailable
         end
-        s.title = WowQuestAPI.GetQuestInfo(sid) or ("Quest " .. sid)
+        local info = WowQuestAPI.GetQuestInfo(sid)
+        s.title = (info and info.title) or ("Quest " .. sid)
     end
 
     return {
