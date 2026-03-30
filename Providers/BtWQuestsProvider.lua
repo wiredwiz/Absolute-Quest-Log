@@ -24,6 +24,57 @@ local CONDITION_ID_HORDE    = 923
 local CONDITION_ID_ALLIANCE = 924
 
 ------------------------------------------------------------------------
+-- Reverse index: questID → chainKey
+-- Built incrementally on demand. All IDs for a step (item.id, item.ids,
+-- item.variations) are indexed so any player variant resolves correctly.
+------------------------------------------------------------------------
+
+local _questToChain  = {}    -- [questID] = chainKey
+local _scannedChains = {}    -- [chainKey] = true; prevents re-scanning
+local _fullyIndexed  = false -- set true once all chains exhausted
+
+-- Scan one chain and write all its questID → chainKey mappings.
+local function indexChain(chainKey, chain)
+    if type(chain.items) ~= "table" then return end
+    for _, item in ipairs(chain.items) do
+        if item.type == ITEM_TYPE_QUEST then
+            -- Collect every questID that satisfies this step.
+            local candidates = {}
+            if item.ids then
+                for _, qid in ipairs(item.ids) do candidates[#candidates + 1] = qid end
+            elseif item.id then
+                candidates[1] = item.id
+            end
+            if item.variations then
+                for _, qid in ipairs(item.variations) do candidates[#candidates + 1] = qid end
+            end
+            -- First-write-wins: a questID in two chains is an authoring error; keep first.
+            for _, qid in ipairs(candidates) do
+                if not _questToChain[qid] then
+                    _questToChain[qid] = chainKey
+                end
+            end
+        end
+    end
+    _scannedChains[chainKey] = true
+end
+
+-- Find the chainKey for questID. Scans lazily — stops as soon as a hit is found.
+local function findChainKey(questID)
+    if _questToChain[questID] then return _questToChain[questID] end
+    if _fullyIndexed then return nil end
+
+    for chainKey, chain in pairs(BtWQuests.Database.Chains) do
+        if type(chain) == "table" and not _scannedChains[chainKey] then
+            indexChain(chainKey, chain)
+            if _questToChain[questID] then return chainKey end
+        end
+    end
+    _fullyIndexed = true
+    return nil
+end
+
+------------------------------------------------------------------------
 -- Identity and capability declaration
 ------------------------------------------------------------------------
 
