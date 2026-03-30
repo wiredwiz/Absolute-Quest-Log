@@ -61,6 +61,9 @@ end
 
 -- Find the chainKey for questID. Scans lazily — stops as soon as a hit is found.
 local function findChainKey(questID)
+    if not (BtWQuests and BtWQuests.Database and BtWQuests.Database.Chains) then
+        return nil
+    end
     if _questToChain[questID] then return _questToChain[questID] end
     if _fullyIndexed then return nil end
 
