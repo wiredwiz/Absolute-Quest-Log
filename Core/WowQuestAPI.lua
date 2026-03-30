@@ -352,10 +352,13 @@ function WowQuestAPI.GetQuestLinkByIndex(logIndex)
 end
 
 -- GetQuestLinkById(questID) → hyperlink string or nil
--- Resolves questID → logIndex, then returns the hyperlink.
--- Returns nil if the quest is not in the player's log.
--- Note: Retail equivalent will be added in the Retail sub-project.
+-- On Retail: calls C_QuestLog.GetQuestLink(questID) directly.
+-- On Classic/TBC/MoP: resolves questID → logIndex, then calls GetQuestLink(logIndex).
+-- Returns nil if the quest link is unavailable.
 function WowQuestAPI.GetQuestLinkById(questID)
+    if IS_RETAIL then
+        return C_QuestLog.GetQuestLink(questID)
+    end
     local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
     if not logIndex then return nil end
     return GetQuestLink(logIndex)
