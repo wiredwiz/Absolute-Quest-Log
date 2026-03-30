@@ -324,6 +324,23 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.6.0 (March 2026)
+- Refactor: provider system restructured for multi-provider capability routing.
+  Three capability buckets (`Chain`, `QuestInfo`, `Requirements`) each carry an
+  independent provider slot in `AQL.providers`, selected from a priority-ordered
+  candidate list. `AQL.provider` (singular) is kept as a backward-compatibility shim.
+- New: `AQL.Capability` enum (`Chain`, `QuestInfo`, `Requirements`).
+- New: `AQL.WARN` orange color constant for always-on provider warning messages.
+- New: `AQL.providers` table keyed by `AQL.Capability.*`; replaces single `AQL.provider`
+  as the authoritative provider reference for all internal code.
+- New: `Provider:Validate()` method on all providers — structural check separate from
+  `IsAvailable()` (presence check). `IsAvailable()=true` + `Validate()=false` fires a
+  one-time orange warning with sound; `IsAvailable()=false` is silent.
+- New: `Provider.addonName` and `Provider.capabilities` fields on all providers.
+- New: Always-on "No X provider found" notification (with sound) fires after the
+  deferred upgrade window closes for any capability that remains unresolved.
+- Behavior unchanged for players with a working Questie or QuestWeaver installation.
+
 ### Version 2.5.5 (March 2026)
 - Retail support: AQL is now fully functional on Retail (Interface 120001). No behavioral changes on Classic Era, TBC, or MoP.
 - New: `WowQuestAPI.GetQuestLogInfo(logIndex)` — normalization wrapper returning `{ title, level, suggestedGroup, isHeader, isCollapsed, isComplete, questID }` from `GetQuestLogTitle` (Classic/TBC/MoP) or `C_QuestLog.GetInfo` (Retail).

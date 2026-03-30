@@ -1,6 +1,14 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 2.6.0 (March 2026)
+---------------------------
+- Refactor: provider system restructured for multi-provider capability routing (Chain, QuestInfo, Requirements buckets).
+- New: AQL.Capability enum, AQL.WARN color constant, AQL.providers table.
+- New: Provider:Validate() method, Provider.addonName and Provider.capabilities fields on all providers.
+- New: Always-on broken-provider and missing-provider notifications (orange, with sound).
+- Behavior unchanged for players with a working Questie or QuestWeaver installation.
+
 Version 2.5.5 (March 2026)
 ---------------------------
 - Retail support: AQL is now fully functional on Retail (Interface 120001). No behavioral changes on Classic Era, TBC, or MoP.
