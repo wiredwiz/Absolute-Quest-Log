@@ -116,7 +116,7 @@ Lookup algorithm (`findChainKey(questID)`):
 
 1. Return `_questToChain[questID]` if present (O(1) hit).
 2. If `_fullyIndexed`, return nil (quest not in BtWQuests).
-3. Iterate `BtWQuests.Database.Chains`, skipping keys in `_scannedChains`. Skip any entry whose value is not a table (guards against non-chain metadata stored at the top level of the Chains table). For each unscanned chain, extract all questIDs from `items[]` into `_questToChain`, mark chain as scanned. Stop as soon as `_questToChain[questID]` is populated.
+3. Iterate `BtWQuests.Database.Chains`, skipping keys in `_scannedChains`. Skip any entry whose value is not a table (guards against non-chain metadata stored at the top level of the Chains table). For each unscanned chain, iterate `items[]` and for every quest-type item add ALL candidate questIDs to `_questToChain`: `item.id` (single), every entry in `item.ids` (OR variants), and every entry in `item.variations`. All map to the same chainKey. Mark chain as scanned. Stop as soon as `_questToChain[questID]` is populated.
 4. If all chains exhausted without finding questID, set `_fullyIndexed = true`, return nil.
 
 The index is built incrementally on demand. A questID in an early-accessed chain is found after scanning only a small portion of the database. The full index is never built unless the player looks up quests across many unrelated chains.
@@ -125,17 +125,48 @@ The index is built incrementally on demand. A questID in an early-accessed chain
 
 ## Step Extraction
 
+**`.ids` semantics (confirmed from BtWQuestsItem_Active source):** `.ids` is OR logic — multiple questIDs that all satisfy the same step position. This handles scenarios where different players receive different questIDs for the same story beat (e.g. different phases, patch replacements). Each `items[]` entry is exactly one step; `.ids` lists alternative questIDs for that step. Flattening `.ids` into separate entries inflates chain length and produces wrong step numbers and must not be done.
+
+`extractQuestIDs` returns one entry per quest-type `items[]` entry. The `questID` field holds the most-relevant questID for the current player, resolved by `resolveStepQuestID`. All IDs in `.ids` (and in `item.variations` when present) are added to the reverse index pointing to the same chainKey.
+
 ```lua
-local function extractQuestIDs(items)
+-- Resolve which questID best represents a step for the current player.
+-- Priority: player's active quest (QuestCache) > completed (HistoryCache) > ids[1]/id.
+local function resolveStepQuestID(item, lookupQuestID)
+    local candidates = {}
+    if item.ids then
+        for _, qid in ipairs(item.ids) do candidates[#candidates+1] = qid end
+    else
+        candidates[1] = item.id
+    end
+    if item.variations then
+        for _, qid in ipairs(item.variations) do candidates[#candidates+1] = qid end
+    end
+
+    -- Return the lookupQuestID itself if it's one of the candidates.
+    if lookupQuestID then
+        for _, qid in ipairs(candidates) do
+            if qid == lookupQuestID then return lookupQuestID end
+        end
+    end
+    -- Return the candidate currently in the player's active quest log.
+    for _, qid in ipairs(candidates) do
+        if AQL.QuestCache and AQL.QuestCache:Get(qid) then return qid end
+    end
+    -- Return the first candidate the player has completed.
+    for _, qid in ipairs(candidates) do
+        if AQL.HistoryCache and AQL.HistoryCache:HasCompleted(qid) then return qid end
+    end
+    return candidates[1]
+end
+
+local function extractQuestIDs(items, lookupQuestID)
     local result = {}
     for _, item in ipairs(items) do
         if item.type == "quest" then
-            if item.id then
-                table.insert(result, { questID = item.id })
-            elseif item.ids then
-                for _, qid in ipairs(item.ids) do
-                    table.insert(result, { questID = qid })
-                end
+            local qid = resolveStepQuestID(item, lookupQuestID)
+            if qid then
+                table.insert(result, { questID = qid })
             end
         end
         -- non-quest items (type="npc", type="event", etc.) silently skipped
@@ -144,14 +175,7 @@ local function extractQuestIDs(items)
 end
 ```
 
-**⚠ VERIFY BEFORE IMPLEMENTATION — `.ids` semantics — DO NOT IMPLEMENT until confirmed:**
-
-The meaning of `.ids` on a step entry must be confirmed against BtWQuests source before writing any code that touches multi-ID steps. Two possibilities with different implementations:
-
-- **Faction/version variants** (more likely): `ids` = multiple questIDs that are alternative versions of the same logical step (e.g. Alliance vs. Horde variants, or a quest updated in a patch). Each `items[]` entry is one step position. `extractQuestIDs` must treat each entry as one step and match the player's questID against any ID in the set. Flattening inflates chain length and produces wrong step numbers.
-- **True parallel branches:** `ids` = quests that can be completed in any order. Flattening into separate entries may be correct.
-
-The code sample above flattens `.ids` as a placeholder only. It is likely wrong for the faction-variant case and **must be revised** once semantics are confirmed. Do not copy this code without first verifying.
+The reverse index (`_questToChain`) must index ALL candidate questIDs for each step — both `item.id` and every entry in `item.ids` and `item.variations` — so that any player variant resolves to the correct chainKey. See the Incremental Reverse Index section below for the full indexing logic.
 
 ---
 
@@ -194,7 +218,7 @@ function BtWQuestsProvider:GetChainInfo(questID)
         return { knownStatus = AQL.ChainStatus.Unknown }
     end
 
-    local steps = extractQuestIDs(chain.items)
+    local steps = extractQuestIDs(chain.items, questID)
     -- A BtWQuests chain that yields fewer than 2 quest steps after filtering non-quest
     -- items (e.g. a chain composed entirely of NPC steps plus one quest) is treated as
     -- NotAChain. The questID remains in _questToChain so findChainKey still returns
@@ -206,6 +230,9 @@ function BtWQuestsProvider:GetChainInfo(questID)
 
     local aqlChainID = steps[1].questID
 
+    -- stepNum: find which step represents questID. Because resolveStepQuestID
+    -- prioritizes questID itself when it's a valid candidate, the matching step's
+    -- questID field equals questID after extraction. Safe to compare directly.
     local stepNum = nil
     for i, s in ipairs(steps) do
         if s.questID == questID then stepNum = i break end
@@ -243,8 +270,6 @@ end
 ```
 
 Step titles are populated via `WowQuestAPI.GetQuestInfo(questID)`. On Retail, `C_QuestLog.GetQuestInfo` returns titles for known questIDs regardless of whether they are in the player's log. Falls back to `"Quest "..questID` for unrecognized IDs.
-
-**`stepNum` nil note:** With the flattening approach, every questID indexed in `_questToChain` also appears in `steps`, so `stepNum` should always be found for `.id` entries. For `.ids` entries, `stepNum` correctness depends on the resolved `.ids` semantics — another reason not to implement before confirming. `step = nil` in the ChainInfo return is technically valid (consumers must nil-check it) but should not occur in normal operation.
 
 **Status annotation:** The HistoryCache-based Available/Unavailable pattern here follows `QuestieProvider` and is the authoritative standard. `QuestWeaverProvider` diverges by checking `prev.status == Completed` instead — that is the exception, not this implementation.
 
@@ -303,19 +328,33 @@ end
 
 ### `GetQuestFaction(questID)`
 
+**Faction restriction encoding (confirmed from BtWQuests source):** `chain.restrictions` is an array. Faction is encoded as either numeric condition IDs (923 = Horde, 924 = Alliance) or table entries of the form `{type="faction", id="Horde"}` / `{type="faction", id="Alliance"}`. Both formats appear in BtWQuests data. The implementation iterates the restrictions array and checks for either form:
+
 ```lua
+local HORDE_CONDITION    = 923
+local ALLIANCE_CONDITION = 924
+
+local function decodeFaction(restrictions)
+    if type(restrictions) ~= "table" then return nil end
+    for _, r in ipairs(restrictions) do
+        if r == HORDE_CONDITION then return AQL.Faction.Horde end
+        if r == ALLIANCE_CONDITION then return AQL.Faction.Alliance end
+        if type(r) == "table" and r.type == "faction" then
+            if r.id == "Horde"    then return AQL.Faction.Horde    end
+            if r.id == "Alliance" then return AQL.Faction.Alliance end
+        end
+    end
+    return nil
+end
+
 function BtWQuestsProvider:GetQuestFaction(questID)
     local chainKey = findChainKey(questID)
     if not chainKey then return nil end
     local chain = BtWQuests.Database.Chains[chainKey]
-    if not chain or not chain.restrictions then return nil end
-    if chain.restrictions == HORDE_RESTRICTIONS    then return AQL.Faction.Horde    end
-    if chain.restrictions == ALLIANCE_RESTRICTIONS then return AQL.Faction.Alliance end
-    return nil
+    if not chain then return nil end
+    return decodeFaction(chain.restrictions)
 end
 ```
-
-**⚠ VERIFY BEFORE IMPLEMENTATION — `HORDE_RESTRICTIONS` / `ALLIANCE_RESTRICTIONS`:** The type, origin, and exact values of these constants must be confirmed from BtWQuests source before implementing. They may be BtWQuests-defined globals, Blizzard globals, numeric IDs, or string keys. If they are not globals (e.g. module-local constants), the comparison approach above must be revised.
 
 ### `GetQuestType(questID)`
 
