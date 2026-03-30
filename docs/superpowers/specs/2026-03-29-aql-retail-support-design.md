@@ -28,7 +28,7 @@ All version-specific code lives in `Core/WowQuestAPI.lua` — the existing archi
 
 | File | Change |
 |---|---|
-| `Core/WowQuestAPI.lua` | New `GetQuestLogInfo` normalization wrapper; IS_RETAIL branches on 11 existing functions; new `GetSelectedQuestLogEntryId` wrapper |
+| `Core/WowQuestAPI.lua` | New `GetQuestLogInfo` normalization wrapper; IS_RETAIL branches on 14 existing functions; new `GetSelectedQuestLogEntryId` wrapper |
 | `Core/QuestCache.lua` | Switch from `GetQuestLogTitle` → `GetQuestLogInfo`; field access updated from positional to table |
 | `AbsoluteQuestLog.lua` | `GetSelectedQuestLogEntryId` body replaced with `WowQuestAPI.GetSelectedQuestLogEntryId()` delegate |
 | `AbsoluteQuestLog.toc` + four version tocs | Version bump 2.5.4 → 2.5.5 |
@@ -125,7 +125,7 @@ end
 
 `IsQuestWatchedByIndex(logIndex)` on Retail: resolve logIndex → questID via `GetQuestLogInfo(logIndex)`, then call `C_QuestLog.IsQuestWatched(questID)`.
 
-### 1d. `MAX_WATCHABLE_QUESTS` fallback
+### 1d. `MAX_WATCHABLE_QUESTS` and `GetNumQuestWatches` fallbacks
 
 `GetMaxWatchableQuests()` reads the FrameXML constant `MAX_WATCHABLE_QUESTS`. Its Retail value is unverified at compile time. Add a nil-guard fallback:
 
@@ -134,6 +134,17 @@ function WowQuestAPI.GetMaxWatchableQuests()
     return MAX_WATCHABLE_QUESTS or 25
 end
 ```
+
+`GetWatchedQuestCount()` calls the global `GetNumQuestWatches()`. This global's availability on Retail is unverified. Add a nil-guard:
+
+```lua
+function WowQuestAPI.GetWatchedQuestCount()
+    if GetNumQuestWatches then return GetNumQuestWatches() end
+    return 0
+end
+```
+
+If `GetNumQuestWatches` is absent on Retail, `TrackQuest` will always see count 0 and never block on the cap — a safe degradation.
 
 ### 1e. `GetSelectedQuestLogEntryId()` — new WowQuestAPI wrapper
 
@@ -277,13 +288,20 @@ Replace with:
 
 ```lua
 local info = WowQuestAPI.GetQuestLogInfo(i)
-if not info then break end
-local title, level, suggestedGroup, isHeader, isCollapsed, isComplete, questID =
-    info.title, info.level, info.suggestedGroup, info.isHeader,
-    info.isCollapsed, info.isComplete, info.questID
+if not info then
+    -- skip this entry; do not break — a nil mid-log entry should not
+    -- cut off all subsequent quests from the cache rebuild
+else
+    local title, level, suggestedGroup, isHeader, isCollapsed, isComplete, questID =
+        info.title, info.level, info.suggestedGroup, info.isHeader,
+        info.isCollapsed, info.isComplete, info.questID
+    -- ... existing downstream processing unchanged ...
+end
 ```
 
-All downstream variable usage within the loop is unchanged — only the read pattern changes.
+> **Note on loop termination:** The original code used `if not title then break end` because `GetQuestLogTitle` returning nil reliably means "past the end of the log." `GetQuestLogInfo` returns nil for any out-of-range index, so the existing `for i = 1, numEntries` upper bound (from `GetNumQuestLogEntries()`) controls loop termination. The `if not info then` branch skips malformed entries without breaking early. The implementer should read the full Rebuild() loop to confirm this matches the existing control flow.
+
+**Phase 1 and Phase 4 of QuestCache:Rebuild()** (collect collapsed headers / re-collapse them) also call `WowQuestAPI.GetQuestLogTitle`. These phases are intentionally **not** migrated to `GetQuestLogInfo` — `GetQuestLogTitle` still exists as a deprecated wrapper on Retail and these phases only need `isHeader` and `isCollapsed` which the existing wrapper returns correctly. Migrating them would be scope creep.
 
 `IsQuestWatchedByIndex(logIndex)` in QuestCache currently calls `WowQuestAPI.IsQuestWatchedByIndex(logIndex)`. WowQuestAPI gains an IS_RETAIL branch for this (Section 1c above) — no change needed in QuestCache itself.
 
