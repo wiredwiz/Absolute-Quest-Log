@@ -51,21 +51,18 @@ function QuestCache:Rebuild()
     end
     numEntries = WowQuestAPI.GetNumQuestLogEntries()
     for i = 1, numEntries do
-        -- TBC 20505: C_QuestLog.GetInfo() does not exist; use GetQuestLogTitle() global.
-        -- Returns: title, level, suggestedGroup, isHeader, isCollapsed, isComplete,
-        --          frequency, questID, startEvent, displayQuestID, isOnMap, hasLocalPOI,
-        --          isTask, isBounty, isStory, isHidden, isScaling
-        local title, level, suggestedGroup, isHeader, _, isComplete, _, questID =
-            WowQuestAPI.GetQuestLogTitle(i)
-        if title then
-            local info = {
-                title          = title,
-                level          = level,
-                suggestedGroup = suggestedGroup,  -- nil-safe: _buildEntry applies or 0 fallback
-                isHeader       = isHeader,
-                isComplete     = isComplete,
-                questID        = questID,
-            }
+        -- GetQuestLogInfo normalizes Classic/TBC/MoP positional returns and Retail
+        -- C_QuestLog.GetInfo() table into a single consistent table.
+        -- Returns nil for a malformed/out-of-range entry — skip (do not break).
+        -- Loop termination is controlled by the numEntries bound above.
+        local info = WowQuestAPI.GetQuestLogInfo(i)
+        if not info then
+            -- skip this entry; do not break — a nil mid-log entry should not
+            -- cut off all subsequent quests from the cache rebuild
+        else
+            local title, level, suggestedGroup, isHeader, isCollapsed, isComplete, questID =
+                info.title, info.level, info.suggestedGroup, info.isHeader,
+                info.isCollapsed, info.isComplete, info.questID
             if info.isHeader then
                 currentZone = info.title
             else
