@@ -53,6 +53,7 @@ AQL.StepStatus = {
 AQL.Provider = {
     Questie     = "Questie",
     QuestWeaver = "QuestWeaver",
+    BtWQuests   = "BtWQuests",
     None        = "none",
 }
 
@@ -78,7 +79,7 @@ AQL.FailReason = {
 
 -- Capability buckets for the multi-provider routing system.
 -- Each capability is served independently by the highest-priority available+valid provider.
--- Phase 2 will add GrailProvider (QuestInfo, Requirements) and BtWQuestsProvider (Chain).
+-- Phase 3 will add GrailProvider (QuestInfo, Requirements).
 AQL.Capability = {
     Chain        = "Chain",        -- GetChainInfo
     QuestInfo    = "QuestInfo",    -- GetQuestBasicInfo, GetQuestType, GetQuestFaction
