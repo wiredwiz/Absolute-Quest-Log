@@ -408,21 +408,22 @@ function WowQuestAPI.CollapseQuestHeader(logIndex)
 end
 
 -- ShowQuestLog()
--- Opens the quest log frame via ShowUIPanel(QuestLogFrame).
+-- Opens the quest log (Retail: WorldMapFrame; Classic/TBC/MoP: QuestLogFrame).
 function WowQuestAPI.ShowQuestLog()
-    ShowUIPanel(QuestLogFrame)
+    if IS_RETAIL then WorldMapFrame:Show() else ShowUIPanel(QuestLogFrame) end
 end
 
 -- HideQuestLog()
--- Closes the quest log frame via HideUIPanel(QuestLogFrame).
+-- Closes the quest log (Retail: WorldMapFrame; Classic/TBC/MoP: QuestLogFrame).
 function WowQuestAPI.HideQuestLog()
-    HideUIPanel(QuestLogFrame)
+    if IS_RETAIL then WorldMapFrame:Hide() else HideUIPanel(QuestLogFrame) end
 end
 
 -- IsQuestLogShown() → bool
--- Returns true if the quest log frame is currently visible.
+-- Returns true if the quest log (or WorldMapFrame on Retail) is currently visible.
 function WowQuestAPI.IsQuestLogShown()
-    return QuestLogFrame ~= nil and QuestLogFrame:IsShown() == true
+    if IS_RETAIL then return WorldMapFrame:IsVisible() end
+    return QuestLogFrame:IsVisible()
 end
 
 -- GetQuestDifficultyColor(level) → {r, g, b}
