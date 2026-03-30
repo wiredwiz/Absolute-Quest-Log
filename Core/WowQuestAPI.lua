@@ -247,6 +247,45 @@ function WowQuestAPI.GetQuestLogTitle(logIndex)
     return GetQuestLogTitle(logIndex)
 end
 
+------------------------------------------------------------------------
+-- WowQuestAPI.GetQuestLogInfo(logIndex)
+-- Normalized wrapper for per-entry quest log data. Consistent table on
+-- all version families.
+-- Returns: { title, level, suggestedGroup, isHeader, isCollapsed, isComplete, questID }
+-- On Classic/TBC/MoP: reads positional returns from GetQuestLogTitle(logIndex).
+-- On Retail: reads fields from C_QuestLog.GetInfo(logIndex).
+-- Returns nil if logIndex is out of range or the entry does not exist.
+------------------------------------------------------------------------
+
+function WowQuestAPI.GetQuestLogInfo(logIndex)
+    if IS_RETAIL then
+        local info = C_QuestLog.GetInfo(logIndex)
+        if not info then return nil end
+        return {
+            title          = info.title,
+            level          = info.level,
+            suggestedGroup = info.suggestedGroup,
+            isHeader       = info.isHeader,
+            isCollapsed    = info.isCollapsed,
+            isComplete     = info.isComplete,
+            questID        = info.questID,
+        }
+    else
+        local title, level, suggestedGroup, isHeader, isCollapsed, isComplete, _, questID =
+            GetQuestLogTitle(logIndex)
+        if not title then return nil end
+        return {
+            title          = title,
+            level          = level,
+            suggestedGroup = suggestedGroup,
+            isHeader       = isHeader,
+            isCollapsed    = isCollapsed,
+            isComplete     = isComplete,
+            questID        = questID,
+        }
+    end
+end
+
 -- GetQuestLogSelection() → logIndex
 -- Returns the currently selected quest log entry index, or 0 if none selected.
 function WowQuestAPI.GetQuestLogSelection()
