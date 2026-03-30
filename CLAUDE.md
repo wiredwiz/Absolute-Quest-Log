@@ -324,6 +324,17 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.6.1 (March 2026)
+- New provider: `BtWQuestsProvider` — supplies chain data (GetChainInfo), faction
+  (GetQuestFaction), and level-range requirements (GetQuestRequirements) on Retail
+  from the BtWQuests addon. Inert on TBC/Classic/MoP (IsAvailable returns false when
+  BtWQuests global is absent).
+- Reverse index built incrementally on first use: questID → chainKey. Handles .ids
+  (OR-logic step variants), item.variations, and non-quest chain items (silently skipped).
+- New: `AQL.Provider.BtWQuests = "BtWQuests"` enum entry.
+- EventEngine: BtWQuestsProvider added to Chain, QuestInfo, and Requirements priority
+  lists. On Retail without Questie or QuestWeaver, fills all three capability slots.
+
 ### Version 2.6.0 (March 2026)
 - Refactor: provider system restructured for multi-provider capability routing.
   Three capability buckets (`Chain`, `QuestInfo`, `Requirements`) each carry an
