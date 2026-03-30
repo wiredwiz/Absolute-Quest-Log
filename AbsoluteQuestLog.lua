@@ -274,8 +274,8 @@ end
 --   Tier 1: AQL QuestCache (full normalized snapshot)
 --   Tier 2: WowQuestAPI log scan → { questID, title, level, suggestedGroup, isComplete, zone }
 --           or title-only { questID, title } when not in log; augmented from Tier 3 when zone absent
---   Tier 3: AQL.provider:GetQuestBasicInfo → { title, questLevel, requiredLevel, zone }
---           merged with AQL.provider:GetChainInfo → chainInfo (chainID, step, length)
+--   Tier 3: AQL.providers[AQL.Capability.QuestInfo]:GetQuestBasicInfo → { title, questLevel, requiredLevel, zone }
+--           merged with AQL.providers[AQL.Capability.Chain]:GetChainInfo → chainInfo (chainID, step, length)
 -- Returns nil only when all three tiers have no data.
 function AQL:GetQuestInfo(questID)
     -- Tier 1: cache.
@@ -394,7 +394,7 @@ end
 -- the provider has no data for this questID.
 -- Designed to always return data once QuestieDB is bundled into AQL.
 function AQL:GetQuestRequirements(questID)
-    local provider = self.provider
+    local provider = self.providers and self.providers[AQL.Capability.Requirements]
     if not provider or not provider.GetQuestRequirements then
         return nil
     end
