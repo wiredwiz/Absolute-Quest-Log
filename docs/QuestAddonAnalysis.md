@@ -17,7 +17,7 @@ Comparison of data sources available for quest information: the standard WoW API
 - `Wholly` — Classic Era through TWW; UI wrapper — delegates entirely to Grail
 
 > `✅*` = available but at chain granularity (not per-quest). See BtWQuests notes below.
-> `†` = via prerequisite graph traversal, not a stored flat field.
+> `✅†` = not stored directly; computed at provider init via a reverse/forward index built from the chain structure. O(1) at lookup time.
 
 | Field | WoW API (in log) | WoW API (not in log) | Questie | QuestWeaver | BtWQuests | Grail | RXPGuides | Wholly |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -46,13 +46,13 @@ Comparison of data sources available for quest information: the standard WoW API
 | `preQuestGroup` (ALL required) | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ |
 | `preQuestSingle` (ANY ONE required) | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ |
 | `exclusiveTo` | ❌ | ❌ | ✅ | ❌ | ❌ | ✅ | ❌ | ✅ |
-| `nextQuestInChain` | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `nextQuestInChain` | ❌ | ❌ | ✅ | ❌ | ✅† | ✅† | ❌ | ✅† |
 | `breadcrumbForQuestId` | ❌ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ | ✅ |
 | **Chain structure** | | | | | | | | |
-| `chainID` | ❌ | ❌ | ❌ | ✅ | ✅* | ❌ | ❌ | ❌ |
-| `step` | ❌ | ❌ | ❌ | ✅ | ✅* | ❌ | ❌ | ❌ |
-| `length` | ❌ | ❌ | ❌ | ✅ | ✅* | ❌ | ❌ | ❌ |
-| `steps[]` | ❌ | ❌ | ❌ | ✅ | ✅* | ❌† | ❌ | ❌ |
+| `chainID` | ❌ | ❌ | ✅† | ✅ | ✅* | ❌ | ❌ | ❌ |
+| `step` | ❌ | ❌ | ✅† | ✅ | ✅* | ❌ | ❌ | ❌ |
+| `length` | ❌ | ❌ | ✅† | ✅ | ✅* | ❌ | ❌ | ❌ |
+| `steps[]` | ❌ | ❌ | ✅† | ✅ | ✅* | ❌† | ❌ | ❌ |
 
 ---
 
