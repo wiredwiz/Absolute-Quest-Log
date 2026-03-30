@@ -324,6 +324,22 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 2.5.5 (March 2026)
+- Retail support: AQL is now fully functional on Retail (Interface 120001). No behavioral changes on Classic Era, TBC, or MoP.
+- New: `WowQuestAPI.GetQuestLogInfo(logIndex)` — normalization wrapper returning `{ title, level, suggestedGroup, isHeader, isCollapsed, isComplete, questID }` from `GetQuestLogTitle` (Classic/TBC/MoP) or `C_QuestLog.GetInfo` (Retail).
+- New: `WowQuestAPI.GetSelectedQuestLogEntryId()` — Retail uses `C_QuestLog.GetSelectedQuest()` directly; Classic/TBC/MoP resolve via logIndex → `GetQuestLogInfo`.
+- Fix: `GetQuestsCompleted()` Retail branch converts `C_QuestLog.GetAllCompletedQuestIDs()` sequential array to `{[questID]=true}` hash map.
+- Fix: `TrackQuest`/`UntrackQuest` call `C_QuestLog.AddQuestWatch(questID)`/`RemoveQuestWatch(questID)` on Retail.
+- Fix: `IsQuestWatchedByIndex`/`IsQuestWatchedById` call `C_QuestLog.IsQuestWatched` on Retail.
+- Fix: `ShowQuestLog`/`HideQuestLog`/`IsQuestLogShown` redirect to `WorldMapFrame` on Retail.
+- Fix: `QuestLog_SetSelection`/`SelectQuestLogEntry` call `C_QuestLog.SetSelectedQuest(questID)` on Retail.
+- Fix: `GetQuestLogPushable` calls `C_QuestLog.IsPushableQuest(questID)` on Retail.
+- Fix: `GetQuestLinkById` calls `C_QuestLog.GetQuestLink(questID)` on Retail.
+- Robustness: `GetMaxWatchableQuests` falls back to `25` if `MAX_WATCHABLE_QUESTS` is nil on Retail.
+- Robustness: `GetWatchedQuestCount` returns `0` if `GetNumQuestWatches` global is absent on Retail.
+- Refactor: `AQL:GetSelectedQuestLogEntryId` body replaced with single delegation to `WowQuestAPI.GetSelectedQuestLogEntryId()`. Debug messages removed.
+- Refactor: `QuestCache` Phase 3 uses `GetQuestLogInfo` instead of `GetQuestLogTitle`. Skip-not-break on nil entries.
+
 ### Version 2.5.4 (March 2026)
 - Feature: `AQL:GetSelectedQuestLogEntryId()` added — questID-based, unambiguously named replacement for deprecated `GetSelectedQuestId()`.
 - Feature: `AQL:SelectQuestLogEntryById(questID)` added — select without display refresh; questID-based replacement for deprecated `SelectQuestLogEntry(logIndex)`.
