@@ -110,13 +110,21 @@ end
 ------------------------------------------------------------------------
 -- WowQuestAPI.GetQuestsCompleted()
 -- Returns the associative table {[questID]=true} of all quests completed
--- by this character. Same return shape on Classic Era, TBC, and MoP.
--- Note: Retail uses C_QuestLog.GetAllCompletedQuestIDs() which returns a
--- sequential array — IS_RETAIL branch will be added in the Retail sub-project.
+-- by this character. Same return shape on all versions.
+-- On Retail: converts C_QuestLog.GetAllCompletedQuestIDs() sequential array
+-- to an associative hash map for O(1) lookup.
 ------------------------------------------------------------------------
 
 function WowQuestAPI.GetQuestsCompleted()
-    if IS_RETAIL then return nil end  -- C_QuestLog.GetAllCompletedQuestIDs() will be added in the Retail sub-project
+    if IS_RETAIL then
+        local ids = C_QuestLog.GetAllCompletedQuestIDs()
+        if not ids then return nil end
+        local result = {}
+        for _, questID in ipairs(ids) do
+            result[questID] = true
+        end
+        return result
+    end
     return GetQuestsCompleted()
 end
 
