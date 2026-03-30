@@ -78,6 +78,59 @@ local function findChainKey(questID)
 end
 
 ------------------------------------------------------------------------
+-- Step extraction helpers
+------------------------------------------------------------------------
+
+-- Pick the single questID that best represents a chain step for the current player.
+-- A step may have multiple valid questIDs (item.ids = OR logic; item.variations =
+-- alternate versions). Priority:
+--   1. lookupQuestID itself, if it's a candidate for this step
+--   2. Any candidate currently in the player's active quest log (QuestCache)
+--   3. Any candidate the player has completed (HistoryCache)
+--   4. First candidate (arbitrary but deterministic)
+local function resolveStepQuestID(item, lookupQuestID)
+    local candidates = {}
+    if item.ids then
+        for _, qid in ipairs(item.ids) do candidates[#candidates + 1] = qid end
+    elseif item.id then
+        candidates[1] = item.id
+    end
+    if item.variations then
+        for _, qid in ipairs(item.variations) do candidates[#candidates + 1] = qid end
+    end
+
+    if lookupQuestID then
+        for _, qid in ipairs(candidates) do
+            if qid == lookupQuestID then return lookupQuestID end
+        end
+    end
+    for _, qid in ipairs(candidates) do
+        if AQL.QuestCache and AQL.QuestCache:Get(qid) then return qid end
+    end
+    for _, qid in ipairs(candidates) do
+        if AQL.HistoryCache and AQL.HistoryCache:HasCompleted(qid) then return qid end
+    end
+    return candidates[1]
+end
+
+-- Build an ordered array of { questID } entries from a chain's items[],
+-- one entry per quest-type item. Non-quest items are silently skipped.
+-- lookupQuestID is used by resolveStepQuestID to prefer the caller's own questID
+-- when it is a valid candidate for a step.
+local function extractQuestIDs(items, lookupQuestID)
+    local result = {}
+    for _, item in ipairs(items) do
+        if item.type == ITEM_TYPE_QUEST then
+            local qid = resolveStepQuestID(item, lookupQuestID)
+            if qid then
+                result[#result + 1] = { questID = qid }
+            end
+        end
+    end
+    return result
+end
+
+------------------------------------------------------------------------
 -- Identity and capability declaration
 ------------------------------------------------------------------------
 
