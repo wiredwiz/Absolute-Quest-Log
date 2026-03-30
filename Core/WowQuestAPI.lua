@@ -314,6 +314,23 @@ function WowQuestAPI.GetQuestLogSelection()
     return GetQuestLogSelection()
 end
 
+-- WowQuestAPI.GetSelectedQuestLogEntryId() → questID or nil
+-- Returns the questID of the currently selected quest log entry.
+-- On Retail: C_QuestLog.GetSelectedQuest() returns questID directly.
+-- On Classic/TBC/MoP: resolves via GetQuestLogSelection() → GetQuestLogInfo().
+-- Returns nil if nothing is selected or if the selected entry is a zone header.
+function WowQuestAPI.GetSelectedQuestLogEntryId()
+    if IS_RETAIL then
+        local questID = C_QuestLog.GetSelectedQuest()
+        return (questID and questID ~= 0) and questID or nil
+    end
+    local logIndex = WowQuestAPI.GetQuestLogSelection()
+    if not logIndex or logIndex == 0 then return nil end
+    local info = WowQuestAPI.GetQuestLogInfo(logIndex)
+    if not info or info.isHeader or not info.questID then return nil end
+    return info.questID
+end
+
 -- SelectQuestLogEntry(logIndex)
 -- Sets the selected entry without refreshing the quest log display.
 function WowQuestAPI.SelectQuestLogEntry(logIndex)
