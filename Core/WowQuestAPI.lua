@@ -152,16 +152,20 @@ end
 ------------------------------------------------------------------------
 
 function WowQuestAPI.TrackQuest(questID)
-    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
-    if logIndex then
-        AddQuestWatch(logIndex)
+    if IS_RETAIL then
+        C_QuestLog.AddQuestWatch(questID)
+    else
+        local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+        if logIndex then AddQuestWatch(logIndex) end
     end
 end
 
 function WowQuestAPI.UntrackQuest(questID)
-    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
-    if logIndex then
-        RemoveQuestWatch(logIndex)
+    if IS_RETAIL then
+        C_QuestLog.RemoveQuestWatch(questID)
+    else
+        local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+        if logIndex then RemoveQuestWatch(logIndex) end
     end
 end
 
@@ -192,15 +196,24 @@ end
 -- Explicit boolean coercion: IsQuestWatched returns 1/nil on legacy clients.
 -- ById variant resolves questID → logIndex via GetQuestLogIndex.
 -- Returns nil from ById if the quest is not in the player's log.
--- Note: Retail uses C_QuestLog.IsQuestWatched(questID) — IS_RETAIL branch
--- will be added in the Retail sub-project (ById variant will be updated).
+-- On Retail: ByIndex resolves logIndex → questID via GetQuestLogInfo, then calls
+-- C_QuestLog.IsQuestWatched(questID). Returns false if logIndex has no entry.
+-- ById calls C_QuestLog.IsQuestWatched(questID) directly.
 ------------------------------------------------------------------------
 
 function WowQuestAPI.IsQuestWatchedByIndex(logIndex)
+    if IS_RETAIL then
+        local info = WowQuestAPI.GetQuestLogInfo(logIndex)
+        if not info or not info.questID then return false end
+        return C_QuestLog.IsQuestWatched(info.questID) and true or false
+    end
     return IsQuestWatched(logIndex) and true or false
 end
 
 function WowQuestAPI.IsQuestWatchedById(questID)
+    if IS_RETAIL then
+        return C_QuestLog.IsQuestWatched(questID) and true or false
+    end
     local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
     if not logIndex then return nil end
     return IsQuestWatched(logIndex) and true or false
