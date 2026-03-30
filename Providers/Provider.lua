@@ -30,7 +30,7 @@
 --       step        = this quest's 1-based position
 --       length      = total quests in chain
 --       steps       = array of { questID, title, status }
---       provider    = "Questie" | "QuestWeaver" | "none"
+--       provider    = "Questie" | "QuestWeaver" | "BtWQuests" | "none"
 --     When knownStatus = "unknown":     only knownStatus present.
 --     When knownStatus = "not_a_chain": only knownStatus present.
 --
