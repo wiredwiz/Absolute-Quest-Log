@@ -241,4 +241,44 @@ function BtWQuestsProvider:GetChainInfo(questID)
     }
 end
 
+------------------------------------------------------------------------
+-- QuestInfo capability
+------------------------------------------------------------------------
+
+-- Decode faction from a chain.restrictions array.
+-- BtWQuests encodes faction in two ways:
+--   Numeric condition IDs: 923 = Horde, 924 = Alliance (most chains)
+--   Table entries: { type = "faction", id = "Horde" } (some chains)
+-- BtWQuests.Constant.Faction holds the authoritative faction strings.
+local function decodeFaction(restrictions)
+    if type(restrictions) ~= "table" then return nil end
+    local factionConst = BtWQuests.Constant.Faction   -- { Horde = "Horde", Alliance = "Alliance" }
+    for _, r in ipairs(restrictions) do
+        if r == CONDITION_ID_HORDE    then return AQL.Faction.Horde    end
+        if r == CONDITION_ID_ALLIANCE then return AQL.Faction.Alliance end
+        if type(r) == "table" and r.type == "faction" then
+            if r.id == factionConst.Horde    then return AQL.Faction.Horde    end
+            if r.id == factionConst.Alliance then return AQL.Faction.Alliance end
+        end
+    end
+    return nil
+end
+
+-- GetQuestFaction reads chain-level restrictions only.
+-- Item-level restrictions are not decoded (chain-level covers the vast majority of
+-- faction-gated content; item-level faction gates are rare and chain-level is
+-- sufficient for UI purposes).
+function BtWQuestsProvider:GetQuestFaction(questID)
+    local chainKey = findChainKey(questID)
+    if not chainKey then return nil end
+    local chain = BtWQuests.Database.Chains[chainKey]
+    if not chain then return nil end
+    return decodeFaction(chain.restrictions)
+end
+
+-- BtWQuests has no quest type data (elite/dungeon/raid/daily).
+function BtWQuestsProvider:GetQuestType(questID)
+    return nil
+end
+
 AQL.BtWQuestsProvider = BtWQuestsProvider
