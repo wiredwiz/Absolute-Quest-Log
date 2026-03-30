@@ -167,6 +167,12 @@ The existing `pcall` guards remain on all call sites.
 
 Two always-on message types. Neither is gated by `AQL.debug`. Both use `AQL.WARN` (orange) to distinguish from normal output and debug messages.
 
+Each warning also plays the WoW level-up ding sound to draw attention regardless of where the player is looking. Cross-version call:
+
+```lua
+PlaySound(SOUNDKIT and SOUNDKIT.LEVEL_UP or "LEVELUP")
+```
+
 ### Broken provider
 
 Fires once per provider when `IsAvailable()` is true but `Validate()` fails. Tracked in a module-local `notifiedBroken` set keyed by `provider.addonName`:
