@@ -282,4 +282,54 @@ function BtWQuestsProvider:GetQuestType(questID)
     return nil
 end
 
+------------------------------------------------------------------------
+-- Requirements capability
+------------------------------------------------------------------------
+
+function BtWQuestsProvider:GetQuestRequirements(questID)
+    local chainKey = findChainKey(questID)
+    if not chainKey then return nil end
+    local chain = BtWQuests.Database.Chains[chainKey]
+    if not chain then return nil end
+
+    local steps = extractQuestIDs(chain.items or {}, questID)
+    if #steps == 0 then return nil end
+
+    local isFirstStep = (steps[1].questID == questID)
+
+    -- nextQuestInChain: the questID of the next step in this chain, or nil if last step.
+    local nextInChain = nil
+    for i, s in ipairs(steps) do
+        if s.questID == questID and steps[i + 1] then
+            nextInChain = steps[i + 1].questID
+            break
+        end
+    end
+
+    -- breadcrumbForQuestId: only the first step of a chain can be a breadcrumb entry.
+    -- chain.relationship.breadcrumb holds the questID this chain is a breadcrumb for.
+    local breadcrumb = isFirstStep
+        and chain.relationship
+        and chain.relationship.breadcrumb
+        or nil
+
+    if isFirstStep then
+        -- Return level range only for step 1. Returning it for later steps would
+        -- show players as ineligible for quests they are already in the middle of.
+        return {
+            requiredLevel        = chain.range and chain.range.min or nil,
+            requiredMaxLevel     = chain.range and chain.range.max or nil,
+            nextQuestInChain     = nextInChain,
+            breadcrumbForQuestId = breadcrumb,
+        }
+    else
+        -- Mid-chain or final step: only return fields that have values.
+        if not nextInChain and not breadcrumb then return nil end
+        return {
+            nextQuestInChain     = nextInChain,
+            breadcrumbForQuestId = breadcrumb,
+        }
+    end
+end
+
 AQL.BtWQuestsProvider = BtWQuestsProvider
