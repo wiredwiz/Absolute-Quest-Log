@@ -333,7 +333,16 @@ end
 
 -- SelectQuestLogEntry(logIndex)
 -- Sets the selected entry without refreshing the quest log display.
+-- On Retail: resolves logIndex → questID via GetQuestLogInfo, calls
+-- C_QuestLog.SetSelectedQuest(questID).
 function WowQuestAPI.SelectQuestLogEntry(logIndex)
+    if IS_RETAIL then
+        local info = WowQuestAPI.GetQuestLogInfo(logIndex)
+        if info and info.questID then
+            C_QuestLog.SetSelectedQuest(info.questID)
+        end
+        return
+    end
     SelectQuestLogEntry(logIndex)
 end
 
@@ -375,23 +384,40 @@ end
 
 -- GetQuestLogPushable() → bool
 -- Returns true if the currently selected quest can be shared with party members.
--- Only meaningful when the target quest is already selected.
+-- On Retail: resolves the selected questID via GetSelectedQuestLogEntryId, calls
+-- C_QuestLog.IsPushableQuest(questID).
+-- On Classic/TBC/MoP: calls GetQuestLogPushable() which reads UI selection state.
 function WowQuestAPI.GetQuestLogPushable()
-    if GetQuestLogPushable() then return true end
-    return false
+    if IS_RETAIL then
+        local questID = WowQuestAPI.GetSelectedQuestLogEntryId()
+        if not questID then return false end
+        return C_QuestLog.IsPushableQuest(questID) and true or false
+    end
+    return GetQuestLogPushable() and true or false
 end
 
 -- QuestLog_SetSelection(logIndex)
--- Updates the UI selection highlight. Always paired with QuestLog_Update().
--- Use AQL:SetQuestLogSelection() for the canonical two-call sequence.
+-- Updates the UI selection highlight and refreshes the quest log display.
+-- On Retail: resolves logIndex → questID via GetQuestLogInfo, calls
+-- C_QuestLog.SetSelectedQuest(questID). QuestLog_Update() is not needed on Retail.
+-- On Classic/TBC/MoP: calls QuestLog_SetSelection + QuestLog_Update (the required pair).
 function WowQuestAPI.QuestLog_SetSelection(logIndex)
+    if IS_RETAIL then
+        local info = WowQuestAPI.GetQuestLogInfo(logIndex)
+        if info and info.questID then
+            C_QuestLog.SetSelectedQuest(info.questID)
+        end
+        return
+    end
     QuestLog_SetSelection(logIndex)
+    QuestLog_Update()
 end
 
 -- QuestLog_Update()
--- Refreshes the quest log display. Always paired with QuestLog_SetSelection().
--- Use AQL:SetQuestLogSelection() for the canonical two-call sequence.
+-- Refreshes the quest log display on Classic/TBC/MoP.
+-- No-op on Retail (the quest log auto-updates when selection changes).
 function WowQuestAPI.QuestLog_Update()
+    if IS_RETAIL then return end
     QuestLog_Update()
 end
 
