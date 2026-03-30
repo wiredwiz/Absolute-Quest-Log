@@ -252,7 +252,7 @@ end
 -- BtWQuests.Constant.Faction holds the authoritative faction strings.
 local function decodeFaction(restrictions)
     if type(restrictions) ~= "table" then return nil end
-    local factionConst = BtWQuests.Constant and BtWQuests.Constant.Faction
+    local factionConst = BtWQuests.Constant and BtWQuests.Constant.Faction  -- { Horde="Horde", Alliance="Alliance" }
     if not factionConst then return nil end
     for _, r in ipairs(restrictions) do
         if r == CONDITION_ID_HORDE    then return AQL.Faction.Horde    end
