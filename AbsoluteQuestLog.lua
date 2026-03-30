@@ -730,21 +730,7 @@ end
 -- Replaces: GetSelectedQuestId() (deprecated)
 ------------------------------------------------------------------------
 function AQL:GetSelectedQuestLogEntryId()
-    local logIndex = WowQuestAPI.GetQuestLogSelection()
-    if not logIndex or logIndex == 0 then
-        if self.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] GetSelectedQuestLogEntryId: no entry selected — returning nil" .. self.RESET)
-        end
-        return nil
-    end
-    local _, _, _, isHeader, _, _, _, questID = WowQuestAPI.GetQuestLogTitle(logIndex)
-    if isHeader or not questID then
-        if self.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] GetSelectedQuestLogEntryId: selected entry logIndex=" .. tostring(logIndex) .. " is a zone header — returning nil" .. self.RESET)
-        end
-        return nil
-    end
-    return questID
+    return WowQuestAPI.GetSelectedQuestLogEntryId()
 end
 
 -- GetQuestLogEntries() → array
