@@ -207,23 +207,25 @@ function BtWQuestsProvider:GetChainInfo(questID)
         local sid = s.questID
         if AQL.HistoryCache and AQL.HistoryCache:HasCompleted(sid) then
             s.status = AQL.StepStatus.Completed
-        elseif AQL.QuestCache and AQL.QuestCache:Get(sid) then
-            local q = AQL.QuestCache:Get(sid)
-            if q.isFailed then
-                s.status = AQL.StepStatus.Failed
-            elseif q.isComplete then
-                s.status = AQL.StepStatus.Finished
-            else
-                s.status = AQL.StepStatus.Active
-            end
         else
-            local prev = steps[i - 1]
-            local prevDone = prev
-                and AQL.HistoryCache
-                and AQL.HistoryCache:HasCompleted(prev.questID)
-            s.status = (i == 1 or prevDone)
-                and AQL.StepStatus.Available
-                or  AQL.StepStatus.Unavailable
+            local q = AQL.QuestCache and AQL.QuestCache:Get(sid)
+            if q then
+                if q.isFailed then
+                    s.status = AQL.StepStatus.Failed
+                elseif q.isComplete then
+                    s.status = AQL.StepStatus.Finished
+                else
+                    s.status = AQL.StepStatus.Active
+                end
+            else
+                local prev = steps[i - 1]
+                local prevDone = prev
+                    and AQL.HistoryCache
+                    and AQL.HistoryCache:HasCompleted(prev.questID)
+                s.status = (i == 1 or prevDone)
+                    and AQL.StepStatus.Available
+                    or  AQL.StepStatus.Unavailable
+            end
         end
         local info = WowQuestAPI.GetQuestInfo(sid)
         s.title = (info and info.title) or ("Quest " .. sid)
