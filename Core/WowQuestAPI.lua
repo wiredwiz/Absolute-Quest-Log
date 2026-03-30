@@ -175,7 +175,8 @@ end
 ------------------------------------------------------------------------
 
 function WowQuestAPI.GetWatchedQuestCount()
-    return GetNumQuestWatches()
+    if GetNumQuestWatches then return GetNumQuestWatches() end
+    return 0
 end
 
 ------------------------------------------------------------------------
@@ -186,7 +187,7 @@ end
 ------------------------------------------------------------------------
 
 function WowQuestAPI.GetMaxWatchableQuests()
-    return MAX_WATCHABLE_QUESTS
+    return MAX_WATCHABLE_QUESTS or 25
 end
 
 ------------------------------------------------------------------------
