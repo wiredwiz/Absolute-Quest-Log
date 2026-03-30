@@ -16,6 +16,7 @@ AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 AQL.RED   = "|cffff0000"
 AQL.RESET = "|r"
 AQL.DBG   = "|cFFFFD200"   -- gold (colorblind-safe, distinct from errors and chat text)
+AQL.WARN  = "|cffff8c00"   -- orange; always-on provider warnings (never debug-gated)
 
 -- Sub-module slots — populated by the files that load after this one.
 -- AbsoluteQuestLog.lua loads first (per TOC order), so these are nil until
@@ -23,7 +24,8 @@ AQL.DBG   = "|cFFFFD200"   -- gold (colorblind-safe, distinct from errors and ch
 -- AQL.QuestCache   set by Core/QuestCache.lua
 -- AQL.HistoryCache set by Core/HistoryCache.lua
 -- AQL.EventEngine  set by Core/EventEngine.lua
--- AQL.provider     set by Core/EventEngine.lua at PLAYER_LOGIN
+-- AQL.provider     backward-compat shim; always AQL.providers[AQL.Capability.Chain] or NullProvider
+-- AQL.providers    active provider per AQL.Capability.*; set by Core/EventEngine.lua at PLAYER_LOGIN
 
 ------------------------------------------------------------------------
 -- Enumeration Constants
@@ -72,6 +74,25 @@ AQL.Faction = {
 AQL.FailReason = {
     Timeout    = "timeout",
     EscortDied = "escort_died",
+}
+
+-- Capability buckets for the multi-provider routing system.
+-- Each capability is served independently by the highest-priority available+valid provider.
+-- Phase 2 will add GrailProvider (QuestInfo, Requirements) and BtWQuestsProvider (Chain).
+AQL.Capability = {
+    Chain        = "Chain",        -- GetChainInfo
+    QuestInfo    = "QuestInfo",    -- GetQuestBasicInfo, GetQuestType, GetQuestFaction
+    Requirements = "Requirements", -- GetQuestRequirements
+}
+
+-- Active provider per capability. Set by Core/EventEngine.lua at PLAYER_LOGIN.
+-- Each slot is nil until provider selection runs.
+-- AQL.provider (singular) is kept as a backward-compatibility shim for external
+-- consumers; it always equals AQL.providers[AQL.Capability.Chain] or AQL.NullProvider.
+AQL.providers = AQL.providers or {
+    [AQL.Capability.Chain]        = nil,
+    [AQL.Capability.QuestInfo]    = nil,
+    [AQL.Capability.Requirements] = nil,
 }
 
 AQL.Event = {
@@ -268,22 +289,21 @@ function AQL:GetQuestInfo(questID)
         -- player's log). Zone is nil only in that path; the log-scan path always
         -- sets zone from the zone-header row. All provider calls are pcall-guarded.
         if not result.zone then
-            local provider = self.provider
-            if provider then
-                if provider.GetQuestBasicInfo then
-                    local ok, basicInfo = pcall(provider.GetQuestBasicInfo, provider, questID)
-                    if ok and basicInfo then
-                        result.zone          = result.zone          or basicInfo.zone
-                        result.level         = result.level         or basicInfo.questLevel
-                        result.requiredLevel = result.requiredLevel or basicInfo.requiredLevel
-                        result.title         = result.title         or basicInfo.title
-                    end
+            local infoProvider  = self.providers and self.providers[AQL.Capability.QuestInfo]
+            local chainProvider = self.providers and self.providers[AQL.Capability.Chain]
+            if infoProvider and infoProvider.GetQuestBasicInfo then
+                local ok, basicInfo = pcall(infoProvider.GetQuestBasicInfo, infoProvider, questID)
+                if ok and basicInfo then
+                    result.zone          = result.zone          or basicInfo.zone
+                    result.level         = result.level         or basicInfo.questLevel
+                    result.requiredLevel = result.requiredLevel or basicInfo.requiredLevel
+                    result.title         = result.title         or basicInfo.title
                 end
-                if provider.GetChainInfo then
-                    local ok, ci = pcall(provider.GetChainInfo, provider, questID)
-                    if ok and ci then
-                        result.chainInfo = result.chainInfo or ci
-                    end
+            end
+            if chainProvider then
+                local ok, ci = pcall(chainProvider.GetChainInfo, chainProvider, questID)
+                if ok and ci then
+                    result.chainInfo = result.chainInfo or ci
                 end
             end
         end
@@ -291,18 +311,18 @@ function AQL:GetQuestInfo(questID)
     end
 
     -- Tier 3: provider (Questie / QuestWeaver).
-    local provider = self.provider
-    if not provider then return nil end
+    local infoProvider  = self.providers and self.providers[AQL.Capability.QuestInfo]
+    local chainProvider = self.providers and self.providers[AQL.Capability.Chain]
 
     local basicInfo
-    if provider.GetQuestBasicInfo then
-        local ok, info = pcall(provider.GetQuestBasicInfo, provider, questID)
+    if infoProvider and infoProvider.GetQuestBasicInfo then
+        local ok, info = pcall(infoProvider.GetQuestBasicInfo, infoProvider, questID)
         if ok and info then basicInfo = info end
     end
 
     local chainInfo = { knownStatus = AQL.ChainStatus.Unknown }
-    if provider.GetChainInfo then
-        local ok, ci = pcall(provider.GetChainInfo, provider, questID)
+    if chainProvider then
+        local ok, ci = pcall(chainProvider.GetChainInfo, chainProvider, questID)
         if ok and ci then chainInfo = ci end
     end
 
