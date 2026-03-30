@@ -136,6 +136,14 @@ end
 ------------------------------------------------------------------------
 
 function WowQuestAPI.GetQuestLogIndex(questID)
+    if IS_RETAIL then
+        local numEntries = C_QuestLog.GetNumQuestLogEntries()
+        for i = 1, numEntries do
+            local info = WowQuestAPI.GetQuestLogInfo(i)
+            if info and info.questID == questID then return i end
+        end
+        return nil
+    end
     local numEntries = GetNumQuestLogEntries()
     for i = 1, numEntries do
         local _, _, _, _, _, _, _, qid = GetQuestLogTitle(i)
@@ -310,8 +318,10 @@ end
 
 -- GetQuestLogSelection() → logIndex
 -- Returns the currently selected quest log entry index, or 0 if none selected.
+-- On Retail: GetQuestLogSelection() may be absent; returns 0 as safe fallback.
 function WowQuestAPI.GetQuestLogSelection()
-    return GetQuestLogSelection()
+    if GetQuestLogSelection then return GetQuestLogSelection() end
+    return 0
 end
 
 -- WowQuestAPI.GetSelectedQuestLogEntryId() → questID or nil
