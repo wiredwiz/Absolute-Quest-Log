@@ -62,60 +62,161 @@ end)
 -- Provider selection
 ------------------------------------------------------------------------
 
-local function selectProvider()
-    -- Try Questie first.
-    local ok1, result1 = pcall(function()
-        return AQL.QuestieProvider
-            and AQL.QuestieProvider:IsAvailable()
-            and AQL.QuestieProvider
-    end)
-    if ok1 and result1 then
-        return result1, "Questie"
-    end
+-- Human-readable labels for capability buckets used in notification messages.
+local CAPABILITY_LABEL = {
+    [AQL.Capability.Chain]        = "quest chain",
+    [AQL.Capability.QuestInfo]    = "quest info",
+    [AQL.Capability.Requirements] = "requirements",
+}
 
-    -- Try QuestWeaver.
-    local ok2, result2 = pcall(function()
-        return AQL.QuestWeaverProvider
-            and AQL.QuestWeaverProvider:IsAvailable()
-            and AQL.QuestWeaverProvider
-    end)
-    if ok2 and result2 then
-        return result2, "QuestWeaver"
+-- Priority-ordered provider candidates per capability.
+-- Built lazily: Providers/ load *after* EventEngine.lua in the TOC, so
+-- AQL.QuestieProvider etc. are nil at EventEngine load time.
+-- getProviderPriority() is first called from selectProviders() inside
+-- PLAYER_LOGIN, by which point all provider globals are populated.
+local _PROVIDER_PRIORITY = nil
+local function getProviderPriority()
+    if not _PROVIDER_PRIORITY then
+        _PROVIDER_PRIORITY = {
+            [AQL.Capability.Chain]        = { AQL.QuestieProvider, AQL.QuestWeaverProvider },
+            [AQL.Capability.QuestInfo]    = { AQL.QuestieProvider, AQL.QuestWeaverProvider },
+            [AQL.Capability.Requirements] = { AQL.QuestieProvider },
+        }
     end
-
-    -- Fallback.
-    return AQL.NullProvider, "none"
+    return _PROVIDER_PRIORITY
 end
 
--- Retries provider selection until a real provider is found or attempts run out.
--- Called once from PLAYER_LOGIN via C_Timer.After(0, ...) so it fires after all
--- other addons' PLAYER_LOGIN handlers complete. Retries every 1 s for up to 5 s
--- to catch Questie, whose async init coroutine takes ~3 s.
--- On success, rebuilds the cache immediately so chain data is populated without
--- waiting for the next game event. The old-cache return value from Rebuild() is
--- intentionally discarded — no diff is needed, only a data refresh.
-local function tryUpgradeProvider(attemptsLeft)
-    if AQL.provider ~= AQL.NullProvider then return end  -- already upgraded
+-- Tracks which providers/capabilities have already received a warning this session.
+-- Keyed by provider.addonName (notifiedBroken) or AQL.Capability.* (notifiedMissing).
+local notifiedBroken  = {}
+local notifiedMissing = {}
 
-    local provider, providerName = selectProvider()
-    if provider ~= AQL.NullProvider then
-        AQL.provider = provider
-        if AQL.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Provider upgraded: " .. tostring(providerName) .. AQL.RESET)
+-- Fires once per provider.addonName when IsAvailable=true but Validate=false.
+-- Always-on: never gated by AQL.debug.
+local function notifyBroken(provider, err)
+    if notifiedBroken[provider.addonName] then return end
+    notifiedBroken[provider.addonName] = true
+    DEFAULT_CHAT_FRAME:AddMessage(AQL.WARN ..
+        "[AQL] WARNING: " .. provider.addonName .. "Provider could not be loaded — " ..
+        provider.addonName .. " may have changed its API.\n" ..
+        "      Quest data will be unavailable. (Update or disable " ..
+        provider.addonName .. " to resolve.)" .. AQL.RESET)
+    PlaySound(SOUNDKIT and SOUNDKIT.LEVEL_UP or "LEVELUP")
+end
+
+-- Fires once per capability when the deferred upgrade window closes with no provider found.
+-- Always-on: never gated by AQL.debug.
+local function notifyMissing(capability)
+    if notifiedMissing[capability] then return end
+    notifiedMissing[capability] = true
+    local label = CAPABILITY_LABEL[capability] or capability:lower()
+    local names = {}
+    for _, p in ipairs(getProviderPriority()[capability] or {}) do
+        if p and p.addonName then table.insert(names, p.addonName) end
+    end
+    local addonList = #names > 0 and table.concat(names, ", ") or "none available"
+    DEFAULT_CHAT_FRAME:AddMessage(AQL.WARN ..
+        "[AQL] WARNING: No " .. label .. " provider found. " ..
+        "Install one of: " .. addonList .. "." .. AQL.RESET)
+    PlaySound(SOUNDKIT and SOUNDKIT.LEVEL_UP or "LEVELUP")
+end
+
+-- Fills unresolved capability slots from the priority list.
+-- Fires notifyBroken for providers that are available but structurally broken.
+-- Called at PLAYER_LOGIN and on the final deferred upgrade attempt.
+local function selectProviders(silent)
+    local priority = getProviderPriority()
+    for capability, candidates in pairs(priority) do
+        if AQL.providers[capability] == nil then
+            for _, provider in ipairs(candidates) do
+                if provider and provider:IsAvailable() then
+                    local ok, err = provider:Validate()
+                    if ok then
+                        AQL.providers[capability] = provider
+                        if AQL.debug then
+                            DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG ..
+                                "[AQL] Provider selected for " .. tostring(capability) ..
+                                ": " .. tostring(provider.addonName) .. AQL.RESET)
+                        end
+                        break
+                    else
+                        if not silent then
+                            notifyBroken(provider, err)
+                        end
+                    end
+                end
+            end
         end
+    end
+    -- Update backward-compatibility shim.
+    AQL.provider = AQL.providers[AQL.Capability.Chain] or AQL.NullProvider
+end
+
+-- Re-runs selection for still-unresolved capabilities.
+-- During intermediate retries (attemptsLeft > 0): Validate()=false is treated as
+-- IsAvailable()=false — silent retry, no notification. Handles Questie's async
+-- init (~3 s) without spuriously warning the user.
+-- On the final attempt (attemptsLeft == 0): calls selectProviders() which fires
+-- notifyBroken, then fires notifyMissing for capabilities still unresolved.
+local function tryUpgradeProviders(attemptsLeft)
+    local priority = getProviderPriority()
+
+    -- Early out if all capabilities are already resolved.
+    local allResolved = true
+    for capability in pairs(priority) do
+        if AQL.providers[capability] == nil then allResolved = false; break end
+    end
+    if allResolved then return end
+
+    if attemptsLeft == 0 then
+        -- Final attempt: run full selectProviders() which fires notifyBroken.
+        selectProviders()
+        -- Rebuild to incorporate any provider just selected.
         AQL.QuestCache:Rebuild()
+        -- Notify for capabilities still unresolved after all attempts.
+        for capability in pairs(priority) do
+            if AQL.providers[capability] == nil then
+                notifyMissing(capability)
+            end
+        end
         return
     end
 
-    if attemptsLeft > 0 then
-        if AQL.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Provider upgrade attempt " ..
-                  tostring(MAX_DEFERRED_UPGRADE_ATTEMPTS - attemptsLeft + 1) ..
-                  "/" .. tostring(MAX_DEFERRED_UPGRADE_ATTEMPTS) ..
-                  " — still on NullProvider" .. AQL.RESET)
+    -- Intermediate retry: silently try each unresolved capability.
+    -- Validate()=false is skipped without notification.
+    local anyUpgraded = false
+    for capability, candidates in pairs(priority) do
+        if AQL.providers[capability] == nil then
+            for _, provider in ipairs(candidates) do
+                if provider and provider:IsAvailable() then
+                    local ok = provider:Validate()
+                    if ok then
+                        AQL.providers[capability] = provider
+                        anyUpgraded = true
+                        if AQL.debug then
+                            DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG ..
+                                "[AQL] Provider upgraded for " .. tostring(capability) ..
+                                ": " .. tostring(provider.addonName) .. AQL.RESET)
+                        end
+                        break
+                    end
+                    -- IsAvailable=true, Validate=false: skip silently during retry window.
+                end
+            end
         end
-        C_Timer.After(1, function() tryUpgradeProvider(attemptsLeft - 1) end)
     end
+    if anyUpgraded then
+        AQL.provider = AQL.providers[AQL.Capability.Chain] or AQL.NullProvider
+        AQL.QuestCache:Rebuild()
+    end
+    if AQL.debug then
+        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG ..
+            "[AQL] Provider upgrade attempt " ..
+            tostring(MAX_DEFERRED_UPGRADE_ATTEMPTS - attemptsLeft + 1) ..
+            "/" .. tostring(MAX_DEFERRED_UPGRADE_ATTEMPTS) ..
+            (anyUpgraded and " — upgraded" or " — retrying") .. AQL.RESET)
+    end
+    C_Timer.After(1, function() tryUpgradeProviders(attemptsLeft - 1) end)
 end
 
 ------------------------------------------------------------------------
@@ -362,18 +463,28 @@ local function handleQuestLogUpdate()
 
         if EventEngine.diffInProgress then return end
 
-        -- Belt-and-suspenders: re-attempt provider selection if still on NullProvider.
-        -- tryUpgradeProvider handles the common case via C_Timer; this is a fallback
-        -- in case the upgrade window was missed. One comparison per rebuild — no cost.
-        if AQL.provider == AQL.NullProvider then
-            local provider, providerName = selectProvider()
-            if provider ~= AQL.NullProvider then
-                AQL.provider = provider
-                if AQL.debug then
-                    DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Provider upgraded (inline): " .. tostring(providerName) .. AQL.RESET)
+        -- Belt-and-suspenders: silently fill any still-unresolved capability slots.
+        -- tryUpgradeProviders handles the common case; this catches missed windows.
+        -- Intentionally does not fire broken-provider notifications.
+        for cap, candidates in pairs(getProviderPriority()) do
+            if AQL.providers[cap] == nil then
+                for _, p in ipairs(candidates) do
+                    if p and p:IsAvailable() then
+                        local ok = p:Validate()
+                        if ok then
+                            AQL.providers[cap] = p
+                            if AQL.debug then
+                                DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG ..
+                                    "[AQL] Provider upgraded (inline) for " ..
+                                    tostring(cap) .. ": " .. tostring(p.addonName) .. AQL.RESET)
+                            end
+                            break
+                        end
+                    end
                 end
             end
         end
+        AQL.provider = AQL.providers[AQL.Capability.Chain] or AQL.NullProvider
 
         local oldCache = AQL.QuestCache:Rebuild()
         if oldCache == nil then return end
@@ -391,12 +502,9 @@ frame:SetScript("OnEvent", function(self, event, ...)
         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Event: " .. tostring(event) .. AQL.RESET)
     end
     if event == "PLAYER_LOGIN" then
-        -- Select the best available provider.
-        local provider, providerName = selectProvider()
-        AQL.provider = provider
-        if AQL.debug then
-            DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Provider selected: " .. tostring(providerName) .. AQL.RESET)
-        end
+        -- Select providers for each capability (fills immediately-available slots).
+        -- Deferred upgrade below catches Questie's async init.
+        selectProviders(true)   -- silent: notifyBroken deferred to the final upgrade attempt
 
         -- Load completed quest history (synchronous in TBC Classic).
         AQL.HistoryCache:Load()
@@ -417,7 +525,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- QuestWeaver is caught on the first attempt (its PLAYER_LOGIN handler runs
         -- before C_Timer.After(0, ...) callbacks fire). Questie may take ~3 s;
         -- retries cover up to 5 s total.
-        C_Timer.After(0, function() tryUpgradeProvider(MAX_DEFERRED_UPGRADE_ATTEMPTS) end)
+        C_Timer.After(0, function() tryUpgradeProviders(MAX_DEFERRED_UPGRADE_ATTEMPTS) end)
     elseif event == "UNIT_QUEST_LOG_CHANGED" then
         local unit = ...
         if unit ~= "player" then
