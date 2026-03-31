@@ -209,11 +209,16 @@ function QuestieProvider:GetChainInfo(questID)
 
     return {
         knownStatus = AQL.ChainStatus.Known,
-        chainID     = chainID,
-        step        = stepNum,
-        length      = length,
-        steps       = steps,
-        provider    = AQL.Provider.Questie,
+        chains = {
+            {
+                chainID    = chainID,
+                step       = stepNum,
+                length     = length,
+                questCount = length,
+                steps      = steps,
+                provider   = AQL.Provider.Questie,
+            }
+        }
     }
 end
 

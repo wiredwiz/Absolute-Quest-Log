@@ -233,11 +233,16 @@ function BtWQuestsProvider:GetChainInfo(questID)
 
     return {
         knownStatus = AQL.ChainStatus.Known,
-        chainID     = aqlChainID,
-        step        = stepNum,
-        length      = #steps,
-        steps       = steps,
-        provider    = AQL.Provider.BtWQuests,
+        chains = {
+            {
+                chainID    = aqlChainID,
+                step       = stepNum,
+                length     = #steps,
+                questCount = #steps,
+                steps      = steps,
+                provider   = AQL.Provider.BtWQuests,
+            }
+        }
     }
 end
 
