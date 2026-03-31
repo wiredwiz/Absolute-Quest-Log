@@ -24,3 +24,4 @@ Providers\QuestieProvider.lua
 Providers\QuestWeaverProvider.lua
 Providers\NullProvider.lua
 Providers\BtWQuestsProvider.lua
+Providers\GrailProvider.lua
