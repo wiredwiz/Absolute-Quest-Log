@@ -151,7 +151,7 @@ local function parseOrPrereqs(prereqStr)
             ids[#ids + 1] = tonumber(token)
         end
     end
-    return #ids > 1 and ids or nil
+    return #ids > 0 and ids or nil
 end
 
 function GrailProvider:GetQuestRequirements(questID)
@@ -251,19 +251,26 @@ local function findRoots(startQuestID)
     return roots
 end
 
--- Compute the set of all questIDs reachable forward from startQuestID.
+-- Compute the set of all questIDs reachable forward from startQuestID,
+-- limited to MAX_CHAIN_DEPTH hops to avoid traversing the entire database.
 local function forwardReachable(startQuestID)
     local reachable = {}
-    local visited = {}
     local queue = { startQuestID }
-    while #queue > 0 do
-        local qid = table.remove(queue, 1)
-        if not visited[qid] then
-            visited[qid] = true
+    local depth = { [startQuestID] = 0 }
+    local head = 1
+    while head <= #queue do
+        local qid = queue[head]
+        head = head + 1
+        if not reachable[qid] then
             reachable[qid] = true
-            local successors = reverseMap[qid] or {}
-            for _, s in ipairs(successors) do
-                queue[#queue + 1] = s
+            local d = depth[qid]
+            if d < MAX_CHAIN_DEPTH then
+                for _, s in ipairs(reverseMap[qid] or {}) do
+                    if not depth[s] then
+                        depth[s] = d + 1
+                        queue[#queue + 1] = s
+                    end
+                end
             end
         end
     end
@@ -430,7 +437,56 @@ local function buildChainFromRoot(rootQuestID)
                 end
             end
         else
-            break
+            -- Multi-node wave: nodes that followed from a previous convergence result.
+            -- These have not yet been added as steps. Check if they reconverge.
+            local sets = {}
+            for _, s in ipairs(currentWave) do
+                sets[s] = forwardReachable(s)
+            end
+            local converge = false
+            for i = 1, #currentWave do
+                for j = i + 1, #currentWave do
+                    for rqid in pairs(sets[currentWave[i]]) do
+                        if sets[currentWave[j]][rqid] then converge = true; break end
+                    end
+                    if converge then break end
+                end
+                if converge then break end
+            end
+            if converge then
+                local groupType = getGroupType(currentWave)
+                local subQuests = {}
+                for _, s in ipairs(currentWave) do
+                    subQuests[#subQuests + 1] = {
+                        questID = s,
+                        title   = g:QuestName(s) or ("Quest " .. s),
+                        status  = AQL.StepStatus.Unknown,
+                    }
+                    questCount = questCount + 1
+                end
+                steps[#steps + 1] = { quests = subQuests, groupType = groupType }
+                local unionSuccessors = {}
+                for _, s in ipairs(currentWave) do
+                    for _, ns in ipairs(reverseMap[s] or {}) do
+                        if not visited[ns] then
+                            local reachableFromAll = true
+                            for _, other in ipairs(currentWave) do
+                                if other ~= s and not sets[other][ns] then
+                                    reachableFromAll = false; break
+                                end
+                            end
+                            if reachableFromAll then
+                                visited[ns] = true
+                                unionSuccessors[ns] = true
+                            end
+                        end
+                    end
+                end
+                currentWave = {}
+                for ns in pairs(unionSuccessors) do currentWave[#currentWave + 1] = ns end
+            else
+                break  -- genuinely divergent paths; end chain here
+            end
         end
     end
 
