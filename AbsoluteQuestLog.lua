@@ -246,6 +246,10 @@ end
 -- Chain Info
 ------------------------------------------------------------------------
 
+-- Private memoization cache for SelectBestChain. Keyed by "chainID:count:xor:sum".
+-- Cleared by _ClearChainSelectionCache on quest state changes.
+local selectionCache = {}
+
 -- GetChainInfo(questID) → ChainInfo
 -- Returns chain info from the cache. Falls back to
 -- { knownStatus = AQL.ChainStatus.Unknown } when not found. Never returns nil.
@@ -267,6 +271,88 @@ end
 -- Returns the total number of quests in questID's chain, or nil if unknown.
 function AQL:GetChainLength(questID)
     return self:GetChainInfo(questID).length
+end
+
+-- _GetCurrentPlayerEngagedQuests() → { [questID] = true }
+-- Merges HistoryCache (all completed quests) with active QuestCache (all in-log quests).
+-- Used by GetChainStep, GetChainLength, and SocialQuest's Mine tab to score chains
+-- for the local player.
+function AQL:_GetCurrentPlayerEngagedQuests()
+    local engaged = {}
+    if self.HistoryCache then
+        for questID in pairs(self.HistoryCache:GetAll()) do
+            engaged[questID] = true
+        end
+    end
+    if self.QuestCache then
+        for questID in pairs(self.QuestCache:GetAll()) do
+            engaged[questID] = true
+        end
+    end
+    return engaged
+end
+
+-- _ClearChainSelectionCache()
+-- Resets the SelectBestChain memoization cache.
+-- Called by EventEngine on QUEST_ACCEPTED, QUEST_REMOVED, and QUEST_TURNED_IN.
+function AQL:_ClearChainSelectionCache()
+    selectionCache = {}
+end
+
+-- SelectBestChain(chainResult, engagedQuestIDs) → chain entry table or nil
+-- Player-agnostic best-chain selector. Scores each chain in chainResult by counting
+-- how many of its member quests appear in engagedQuestIDs. Returns the highest-scoring
+-- chain entry, or nil if chainResult.knownStatus is not "known".
+--
+-- chainResult:     return value of AQL:GetChainInfo(questID)
+-- engagedQuestIDs: { [questID] = true } — completed + active quests for the target player
+-- returns:         chain entry { chainID, step, length, questCount, steps, provider } or nil
+--
+-- Results are memoized per (chainID, fingerprint) where fingerprint is a count:xor:sum
+-- composite of the engaged set. Cache is cleared by _ClearChainSelectionCache.
+function AQL:SelectBestChain(chainResult, engagedQuestIDs)
+    if not chainResult or chainResult.knownStatus ~= AQL.ChainStatus.Known then
+        return nil
+    end
+    local chains = chainResult.chains
+    if not chains or #chains == 0 then return nil end
+    if #chains == 1 then return chains[1] end  -- fast path: no scoring needed
+
+    -- Build fingerprint of the engaged set: count:xor:sum
+    -- bit.bxor is available in WoW's Lua environment (LuaJIT / Lua BitOp).
+    local count, xorVal, sumVal = 0, 0, 0
+    for qid in pairs(engagedQuestIDs or {}) do
+        count  = count  + 1
+        xorVal = bit.bxor(xorVal, qid)
+        sumVal = sumVal + qid
+    end
+    local fp = count .. ":" .. xorVal .. ":" .. sumVal
+
+    local bestChain, bestScore = chains[1], -1
+    for _, chain in ipairs(chains) do
+        local cacheKey = tostring(chain.chainID or 0) .. ":" .. fp
+        local score = selectionCache[cacheKey]
+        if score == nil then
+            -- Score: count engaged quests that appear anywhere in this chain's steps.
+            score = 0
+            for _, step in ipairs(chain.steps or {}) do
+                if step.questID then
+                    if engagedQuestIDs[step.questID] then score = score + 1 end
+                elseif step.quests then
+                    for _, sq in ipairs(step.quests) do
+                        if engagedQuestIDs[sq.questID] then score = score + 1 end
+                    end
+                end
+            end
+            selectionCache[cacheKey] = score
+        end
+        if score > bestScore then
+            bestScore = score
+            bestChain = chain
+        end
+    end
+
+    return bestChain
 end
 
 ------------------------------------------------------------------------
