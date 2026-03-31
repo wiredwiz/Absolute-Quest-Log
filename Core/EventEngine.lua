@@ -78,9 +78,9 @@ local _PROVIDER_PRIORITY = nil
 local function getProviderPriority()
     if not _PROVIDER_PRIORITY then
         _PROVIDER_PRIORITY = {
-            [AQL.Capability.Chain]        = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.BtWQuestsProvider },
-            [AQL.Capability.QuestInfo]    = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.BtWQuestsProvider },
-            [AQL.Capability.Requirements] = { AQL.QuestieProvider, AQL.BtWQuestsProvider },
+            [AQL.Capability.Chain]        = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.BtWQuestsProvider, AQL.GrailProvider },
+            [AQL.Capability.QuestInfo]    = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.BtWQuestsProvider, AQL.GrailProvider },
+            [AQL.Capability.Requirements] = { AQL.QuestieProvider, AQL.BtWQuestsProvider, AQL.GrailProvider },
         }
     end
     return _PROVIDER_PRIORITY
@@ -543,11 +543,13 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- it passes the quest log index (or nothing). Using a count avoids depending
         -- on the argument type and works for all WoW versions.
         EventEngine.pendingAcceptCount = EventEngine.pendingAcceptCount + 1
+        AQL:_ClearChainSelectionCache()
         handleQuestLogUpdate()
     elseif event == "QUEST_REMOVED" then
         -- Reset the count so a stale accept cannot fire for a quest that was removed
         -- (e.g. player accepted then immediately abandoned before the diff ran).
         EventEngine.pendingAcceptCount = 0
+        AQL:_ClearChainSelectionCache()
         handleQuestLogUpdate()
     elseif event == "QUEST_TURNED_IN" then
         -- Set pendingTurnIn so objective regression during item transfer is suppressed.
@@ -556,6 +558,7 @@ frame:SetScript("OnEvent", function(self, event, ...)
         local questID = ...
         if questID and questID ~= 0 then
             EventEngine.pendingTurnIn[questID] = true
+            AQL:_ClearChainSelectionCache()
             if AQL.debug then
                 DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] pendingTurnIn set (QUEST_TURNED_IN): questID=" .. tostring(questID) .. AQL.RESET)
             end
