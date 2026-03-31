@@ -203,6 +203,7 @@ end
 
 local reverseMap      = {}
 local reverseMapBuilt = false
+local MAX_CHAIN_DEPTH = 50
 
 local function buildReverseMap()
     if reverseMapBuilt then return end
@@ -339,8 +340,6 @@ end
 
 -- Build a single chain starting at rootQuestID using BFS forward walk.
 -- Returns steps array and total questCount.
-local MAX_CHAIN_DEPTH = 50
-
 local function buildChainFromRoot(rootQuestID)
     local g = _G["Grail"]
     local steps = {}
