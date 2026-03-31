@@ -54,6 +54,7 @@ AQL.Provider = {
     Questie     = "Questie",
     QuestWeaver = "QuestWeaver",
     BtWQuests   = "BtWQuests",
+    Grail       = "Grail",
     None        = "none",
 }
 
@@ -63,6 +64,7 @@ AQL.QuestType = {
     Dungeon = "dungeon",
     Raid    = "raid",
     Daily   = "daily",
+    Weekly  = "weekly",
     PvP     = "pvp",
     Escort  = "escort",
 }
