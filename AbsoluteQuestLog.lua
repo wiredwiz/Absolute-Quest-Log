@@ -262,15 +262,23 @@ function AQL:GetChainInfo(questID)
 end
 
 -- GetChainStep(questID) → number or nil
--- Returns the 1-based step position of questID in its chain, or nil if unknown.
+-- Returns the 1-based step position for the current player's best-fit chain, or nil.
 function AQL:GetChainStep(questID)
-    return self:GetChainInfo(questID).step
+    local r = self:GetChainInfo(questID)
+    if r.knownStatus ~= AQL.ChainStatus.Known then return nil end
+    local engaged = self:_GetCurrentPlayerEngagedQuests()
+    local chain = self:SelectBestChain(r, engaged)
+    return chain and chain.step or nil
 end
 
 -- GetChainLength(questID) → number or nil
--- Returns the total number of quests in questID's chain, or nil if unknown.
+-- Returns the total step count for the current player's best-fit chain, or nil.
 function AQL:GetChainLength(questID)
-    return self:GetChainInfo(questID).length
+    local r = self:GetChainInfo(questID)
+    if r.knownStatus ~= AQL.ChainStatus.Known then return nil end
+    local engaged = self:_GetCurrentPlayerEngagedQuests()
+    local chain = self:SelectBestChain(r, engaged)
+    return chain and chain.length or nil
 end
 
 -- _GetCurrentPlayerEngagedQuests() → { [questID] = true }
