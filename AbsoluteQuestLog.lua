@@ -275,8 +275,8 @@ end
 
 -- _GetCurrentPlayerEngagedQuests() → { [questID] = true }
 -- Merges HistoryCache (all completed quests) with active QuestCache (all in-log quests).
--- Used by GetChainStep, GetChainLength, and SocialQuest's Mine tab to score chains
--- for the local player.
+-- Will be used by GetChainStep, GetChainLength (see Task 4) and SocialQuest's Mine tab
+-- to score chains for the local player.
 function AQL:_GetCurrentPlayerEngagedQuests()
     local engaged = {}
     if self.HistoryCache then
@@ -308,12 +308,14 @@ end
 -- engagedQuestIDs: { [questID] = true } — completed + active quests for the target player
 -- returns:         chain entry { chainID, step, length, questCount, steps, provider } or nil
 --
+-- On a tie, the first chain in the chains array is returned (provider-determined order).
 -- Results are memoized per (chainID, fingerprint) where fingerprint is a count:xor:sum
 -- composite of the engaged set. Cache is cleared by _ClearChainSelectionCache.
 function AQL:SelectBestChain(chainResult, engagedQuestIDs)
     if not chainResult or chainResult.knownStatus ~= AQL.ChainStatus.Known then
         return nil
     end
+    engagedQuestIDs = engagedQuestIDs or {}
     local chains = chainResult.chains
     if not chains or #chains == 0 then return nil end
     if #chains == 1 then return chains[1] end  -- fast path: no scoring needed
