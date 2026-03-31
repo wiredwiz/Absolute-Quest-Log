@@ -57,7 +57,7 @@ function GrailProvider:GetQuestBasicInfo(questID)
     local locs = g:QuestLocationsAccept(questID)
     if locs and locs[1] then
         local mapArea = locs[1].mapArea
-        if mapArea and mapArea > 0 then
+        if mapArea then
             zone = WowQuestAPI.GetAreaInfo(mapArea)
         end
     end
