@@ -283,8 +283,8 @@ end
 
 -- _GetCurrentPlayerEngagedQuests() → { [questID] = true }
 -- Merges HistoryCache (all completed quests) with active QuestCache (all in-log quests).
--- Will be used by GetChainStep, GetChainLength (see Task 4) and SocialQuest's Mine tab
--- to score chains for the local player.
+-- Used by GetChainStep, GetChainLength, and SocialQuest's Mine tab to score chains
+-- for the local player.
 function AQL:_GetCurrentPlayerEngagedQuests()
     local engaged = {}
     if self.HistoryCache then
