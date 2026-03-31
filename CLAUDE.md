@@ -50,6 +50,7 @@ AQL has no external addon dependencies. The `Libs\` copies are the sole requirem
 | `Providers\QuestieProvider.lua` | `AQL.QuestieProvider` | When Questie is installed. Reads quest DB via `QuestieLoader:ImportModule("QuestieDB")`. Guards on `db.QuestPointers` for readiness (Questie's async init). |
 | `Providers\QuestWeaverProvider.lua` | `AQL.QuestWeaverProvider` | When QuestWeaver is installed and Questie is absent. Reads from `_G["QuestWeaver"].Quests`. |
 | `Providers\NullProvider.lua` | `AQL.NullProvider` | Fallback when no quest DB addon is present. Always returns `knownStatus = "unknown"`. |
+| `Providers\GrailProvider.lua` | `AQL.GrailProvider` | When Grail is installed. Last in all priority lists. Covers Classic/TBC/Wrath/MoP/Retail. |
 
 Provider selection runs at `PLAYER_LOGIN` via `selectProvider()`. Because Questie's DB initializes asynchronously (~3 s), `EventEngine` retries every 1 s for up to 5 s via `tryUpgradeProvider()`. A belt-and-suspenders inline check also fires on each `QUEST_LOG_UPDATE` in case the upgrade window was missed.
 
@@ -70,7 +71,7 @@ Data and state queries about quests. No interaction with the quest log frame.
 | `AQL:GetQuestsByZone(zone)` | `{[questID]=QuestInfo}` | Filters cache by zone |
 | `AQL:IsQuestActive(questID)` | bool | True if quest is in active log |
 | `AQL:IsQuestFinished(questID)` | bool | True if objectives complete, not yet turned in |
-| `AQL:GetQuestType(questID)` | string or nil | From cache only |
+| `AQL:GetQuestType(questID)` | string or nil | From cache only. Possible values include those in `AQL.QuestType` (Normal, Elite, Dungeon, Raid, Daily, PvP, Escort, Weekly). |
 
 #### Quest History
 
@@ -101,7 +102,8 @@ Data and state queries about quests. No interaction with the quest log frame.
 
 | Method | Returns | Notes |
 |---|---|---|
-| `AQL:GetChainInfo(questID)` | `ChainInfo` | Cache first; returns `{knownStatus="unknown"}` if not found |
+| `AQL:GetChainInfo(questID)` | wrapper | Returns wrapper { knownStatus, chains }. Never nil. Use SelectBestChain to get a chain entry. |
+| `AQL:SelectBestChain(chainResult, engagedQuestIDs)` | chain entry or nil | Scores chains by overlap with engaged set; memoized. |
 | `AQL:GetChainStep(questID)` | number or nil | |
 | `AQL:GetChainLength(questID)` | number or nil | |
 
@@ -262,15 +264,29 @@ Registered via CallbackHandler: `AQL:RegisterCallback(event, handler, target)` /
 -- knownStatus = "known":
 {
     knownStatus = "known",
-    chainID     = N,             -- questID of first quest in chain
-    step        = N,             -- 1-based position of this quest
-    length      = N,             -- total quests in chain
-    steps       = {
-        { questID = N, title = "string",
-          status = "completed"|"active"|"finished"|"failed"|"available"|"unavailable"|"unknown" },
-        ...
-    },
-    provider    = "Questie"|"QuestWeaver"|"none",
+    chains = {
+        {
+            chainID    = N,        -- questID of chain root (first step)
+            step       = N,        -- 1-based step-position of the queried quest
+            length     = N,        -- total step-positions (a group counts as 1)
+            questCount = N,        -- total individual quests across all steps
+            steps      = {
+                -- Single-quest step (common case):
+                { questID = N, title = "string",
+                  status = "completed"|"active"|"finished"|"failed"|"available"|"unavailable"|"unknown" },
+                -- Multi-quest step (parallel or branch):
+                {
+                    quests = {
+                        { questID = N, title = "string", status = "..." },
+                        { questID = M, title = "string", status = "..." },
+                    },
+                    groupType = "parallel"|"branch"|"unknown",
+                },
+            },
+            provider   = "Grail"|"Questie"|"QuestWeaver"|"BtWQuests"|"none",
+        },
+        -- second entry only when quest belongs to multiple distinct chains
+    }
 }
 -- knownStatus = "not_a_chain": only knownStatus field present
 -- knownStatus = "unknown": only knownStatus field present
@@ -283,7 +299,7 @@ Registered via CallbackHandler: `AQL:RegisterCallback(event, handler, target)` /
 Every provider must implement:
 
 - `Provider:IsAvailable()` → bool
-- `Provider:GetChainInfo(questID)` → ChainInfo
+- `Provider:GetChainInfo(questID)` → `{ knownStatus, chains }` wrapper (see ChainInfo Structure)
 - `Provider:GetQuestType(questID)` → string or nil
 - `Provider:GetQuestFaction(questID)` → "Alliance" | "Horde" | nil
 - `Provider:GetQuestBasicInfo(questID)` → `{ title, questLevel, requiredLevel, zone }` or nil (optional — checked with `if provider.GetQuestBasicInfo then`)
@@ -323,6 +339,40 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ---
 
 ## Version History
+
+### Version 3.0.0 (March 2026)
+> **BREAKING CHANGE:** `AQL:GetChainInfo(questID)` now returns a wrapper object
+> `{ knownStatus, chains }` instead of a bare ChainInfo table. All callers must update.
+> `QuestInfo.chainInfo` field type changes accordingly.
+>
+> **Migration:**
+> ```lua
+> -- Before (2.x):
+> local ci = AQL:GetChainInfo(questID)
+> if ci.knownStatus == AQL.ChainStatus.Known then
+>     show(ci.step, ci.length)
+> end
+> -- After (3.0):
+> local result = AQL:GetChainInfo(questID)
+> if result.knownStatus == AQL.ChainStatus.Known then
+>     local ci = AQL:SelectBestChain(result, engagedSet)
+>     if ci then show(ci.step, ci.length) end
+> end
+> ```
+- New: `GrailProvider` — quest chain, basic info, and requirements from the Grail addon.
+  Covers all WoW versions where Grail is installed (Classic Era, TBC, Wrath, MoP, Retail).
+  Chain info reverse-engineered from `Grail.questPrerequisites` via a lazy reverse map.
+  Last in all three provider priority lists.
+- New: `AQL:SelectBestChain(chainResult, engagedQuestIDs)` — player-agnostic best-chain
+  selector. Pass any `{ [questID] = true }` set (current player or party member) to pick
+  the chain entry with the most overlap. Memoized by (chainID, count:xor:sum fingerprint).
+  Cache cleared by EventEngine on quest state changes.
+- New: `AQL.QuestType.Weekly = "weekly"` — weekly quest type reported by GrailProvider.
+- New: `AQL.Provider.Grail = "Grail"` — enum entry used in chain `provider` field.
+- Breaking: `GetChainInfo` return shape changed from bare ChainInfo to wrapper. See above.
+- Breaking: `QuestInfo.chainInfo` now holds wrapper object (not bare ChainInfo).
+- Updated: `GetChainStep` / `GetChainLength` use `SelectBestChain` internally.
+- Multi-quest steps now supported: duck-typed `step.quests` array with `groupType`.
 
 ### Version 2.6.1 (March 2026)
 - New provider: `BtWQuestsProvider` — supplies chain data (GetChainInfo), faction

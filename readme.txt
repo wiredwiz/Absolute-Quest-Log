@@ -53,6 +53,63 @@ See the CALLBACKS section below for the full list of events and their arguments.
 
 
 --------------------------------------------------------------------------------
+  BREAKING CHANGES IN 3.0.0
+--------------------------------------------------------------------------------
+
+GetChainInfo Return Type Changed
+---------------------------------
+AQL:GetChainInfo(questID) now returns a wrapper object instead of a bare
+ChainInfo table.
+
+Before (2.x):
+
+    local ci = AQL:GetChainInfo(questID)
+    if ci.knownStatus == AQL.ChainStatus.Known then
+        print("Step " .. ci.step .. " of " .. ci.length)
+    end
+
+After (3.0):
+
+    local result = AQL:GetChainInfo(questID)
+    if result.knownStatus == AQL.ChainStatus.Known then
+        local ci = AQL:SelectBestChain(result, AQL:_GetCurrentPlayerEngagedQuests())
+        if ci then
+            print("Step " .. ci.step .. " of " .. ci.length)
+        end
+    end
+
+The wrapper shape:
+
+    { knownStatus = "known", chains = { { chainID, step, length, questCount, steps, provider }, ... } }
+    { knownStatus = "not_a_chain" }
+    { knownStatus = "unknown" }
+
+QuestInfo.chainInfo (on cached quest entries) now holds this wrapper object.
+
+
+New: AQL:SelectBestChain(chainResult, engagedQuestIDs)
+-------------------------------------------------------
+Picks the best-fit chain entry for a given player's engaged quest set.
+
+Current player:
+
+    local engaged = AQL:_GetCurrentPlayerEngagedQuests()
+    local chain = AQL:SelectBestChain(result, engaged)
+
+Party member:
+
+    local memberEngaged = {}
+    for qid in pairs(member.completedQuests or {}) do memberEngaged[qid] = true end
+    for qid in pairs(member.quests or {}) do memberEngaged[qid] = true end
+    local chain = AQL:SelectBestChain(result, memberEngaged)
+
+
+New Quest Type: AQL.QuestType.Weekly = "weekly"
+------------------------------------------------
+Reported by GrailProvider for weekly quests. Additive.
+
+
+--------------------------------------------------------------------------------
   PUBLIC API — GROUP 1: QUEST APIS
 --------------------------------------------------------------------------------
 

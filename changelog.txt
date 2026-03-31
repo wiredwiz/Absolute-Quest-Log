@@ -1,6 +1,31 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 3.0.0 (March 2026)
+==========================
+BREAKING CHANGES
+----------------
+- GetChainInfo return type: AQL:GetChainInfo(questID) now returns
+  { knownStatus, chains={...} } wrapper instead of a bare ChainInfo.
+  All callers must update. Use AQL:SelectBestChain(result, engagedSet)
+  to extract a chain entry. See README.md for full migration guide.
+- QuestInfo.chainInfo field now holds the wrapper object (not bare ChainInfo).
+
+New Features
+------------
+- GrailProvider: quest chain, basic info, and requirements from the Grail addon.
+  Last in all three provider priority lists. Covers all WoW version families.
+- AQL:SelectBestChain(chainResult, engagedQuestIDs) — player-agnostic chain
+  selector. Pass any {[questID]=true} set; returns best-fit chain entry. Memoized.
+- AQL.QuestType.Weekly = "weekly" — weekly quest type (GrailProvider).
+- AQL.Provider.Grail = "Grail" — enum for GrailProvider chain entries.
+- Multi-quest steps in chain format: { quests={...}, groupType="parallel"|"branch"|"unknown" }.
+
+Updated
+-------
+- GetChainStep / GetChainLength use SelectBestChain internally for current player.
+- EventEngine clears SelectBestChain cache on QUEST_ACCEPTED, QUEST_REMOVED, QUEST_TURNED_IN.
+
 Version 2.6.1 (March 2026)
 ---------------------------
 - New provider: BtWQuestsProvider — supplies chain data (GetChainInfo), faction
