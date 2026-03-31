@@ -323,7 +323,7 @@ function AQL:SelectBestChain(chainResult, engagedQuestIDs)
     -- Build fingerprint of the engaged set: count:xor:sum
     -- bit.bxor is available in WoW's Lua environment (LuaJIT / Lua BitOp).
     local count, xorVal, sumVal = 0, 0, 0
-    for qid in pairs(engagedQuestIDs or {}) do
+    for qid in pairs(engagedQuestIDs) do
         count  = count  + 1
         xorVal = bit.bxor(xorVal, qid)
         sumVal = sumVal + qid
