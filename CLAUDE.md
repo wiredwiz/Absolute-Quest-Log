@@ -340,6 +340,11 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 3.0.1 (April 2026)
+- Bug fix: `WowQuestAPI.GetNumQuestLogEntries()` crashed on Retail with "attempt to call global 'GetNumQuestLogEntries' (a nil value)" — the global was removed in Retail. Added Retail branch calling `C_QuestLog.GetNumQuestLogEntries()` (returns numEntries as first value).
+- Bug fix: `WowQuestAPI.GetQuestLogTitle()` called the removed `GetQuestLogTitle` global on Retail. Added Retail branch mapping `C_QuestLog.GetInfo(logIndex)` fields to the legacy 8-value positional return format (`title, level, suggestedGroup, isHeader, isCollapsed, isComplete, 0, questID`).
+- Bug fix: `WowQuestAPI.ExpandQuestHeader()` and `CollapseQuestHeader()` call the bare globals directly with no nil-guard. These globals may be absent on Retail builds. Both wrappers now check for global existence before calling.
+
 ### Version 3.0.0 (March 2026)
 > **BREAKING CHANGE:** `AQL:GetChainInfo(questID)` now returns a wrapper object
 > `{ knownStatus, chains }` instead of a bare ChainInfo table. All callers must update.

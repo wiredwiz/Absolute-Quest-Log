@@ -265,7 +265,12 @@ end
 
 -- GetNumQuestLogEntries() → number
 -- Returns the total number of visible entries (zone headers + quests).
+-- Retail: C_QuestLog.GetNumQuestLogEntries() returns numEntries, numQuests;
+-- only the first value (numEntries) is returned here.
 function WowQuestAPI.GetNumQuestLogEntries()
+    if IS_RETAIL then
+        return C_QuestLog.GetNumQuestLogEntries()
+    end
     return GetNumQuestLogEntries()
 end
 
@@ -273,7 +278,16 @@ end
 -- Returns all fields for the entry at the given visible logIndex.
 -- Header rows: title = zone name, isHeader = true, questID = nil.
 -- Quest rows:  isHeader = false, questID = the quest's numeric ID.
+-- Retail: maps C_QuestLog.GetInfo() fields to the legacy positional return format.
+-- frequency is not exposed in the Retail API; always returns 0.
 function WowQuestAPI.GetQuestLogTitle(logIndex)
+    if IS_RETAIL then
+        local info = C_QuestLog.GetInfo(logIndex)
+        if not info then return nil end
+        return info.title, info.level, info.suggestedGroup,
+               info.isHeader, info.isCollapsed, info.isComplete,
+               0, info.questID
+    end
     return GetQuestLogTitle(logIndex)
 end
 
@@ -433,14 +447,16 @@ end
 
 -- ExpandQuestHeader(logIndex)
 -- Expands the collapsed zone header at logIndex.
+-- No-op on Retail if the global is absent (removed in some Retail builds).
 function WowQuestAPI.ExpandQuestHeader(logIndex)
-    ExpandQuestHeader(logIndex)
+    if ExpandQuestHeader then ExpandQuestHeader(logIndex) end
 end
 
 -- CollapseQuestHeader(logIndex)
 -- Collapses the zone header at logIndex.
+-- No-op on Retail if the global is absent (removed in some Retail builds).
 function WowQuestAPI.CollapseQuestHeader(logIndex)
-    CollapseQuestHeader(logIndex)
+    if CollapseQuestHeader then CollapseQuestHeader(logIndex) end
 end
 
 -- ShowQuestLog()

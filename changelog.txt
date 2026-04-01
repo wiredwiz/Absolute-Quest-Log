@@ -1,6 +1,15 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 3.0.1 (April 2026)
+===========================
+- Bug fix: WowQuestAPI.GetNumQuestLogEntries() crashed on Retail —
+  GetNumQuestLogEntries global removed; now calls C_QuestLog.GetNumQuestLogEntries().
+- Bug fix: WowQuestAPI.GetQuestLogTitle() crashed on Retail —
+  GetQuestLogTitle global removed; now maps C_QuestLog.GetInfo() to legacy return format.
+- Bug fix: ExpandQuestHeader/CollapseQuestHeader wrappers now nil-guard the
+  globals before calling (may be absent on some Retail builds).
+
 Version 3.0.0 (March 2026)
 ==========================
 BREAKING CHANGES
