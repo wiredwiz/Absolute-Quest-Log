@@ -30,6 +30,13 @@ EventEngine.initialized         = false
 EventEngine.pendingTurnIn       = {}  -- questIDs currently awaiting QUEST_REMOVED after turn-in confirmation
 EventEngine.pendingAcceptCount  = 0   -- number of QUEST_ACCEPTED events fired and awaiting cache diff
 EventEngine.debounceGeneration  = 0   -- incremented on every QUEST_LOG_UPDATE; timer fires only when still current
+-- On Retail, some WoW API calls inside QuestCache._buildEntry fire QUEST_LOG_UPDATE
+-- synchronously, which re-enters handleQuestLogUpdate mid-rebuild and schedules another
+-- rebuild, creating an infinite loop. After each rebuild completes we set a 100 ms
+-- cooldown; subsequent QUEST_LOG_UPDATE / QUEST_WATCH_LIST_CHANGED calls within that
+-- window are silently dropped. Calls triggered by real player actions (QUEST_ACCEPTED,
+-- QUEST_REMOVED) pass bypassCooldown=true and are never suppressed.
+EventEngine.rebuildCooldownUntil = 0
 
 -- Hidden event frame.
 local frame = CreateFrame("Frame")
@@ -447,10 +454,20 @@ local function runDiff(oldCache)
     end
 end
 
-local function handleQuestLogUpdate()
+local function handleQuestLogUpdate(bypassCooldown)
     if not EventEngine.initialized then
         if AQL.debug == "verbose" then
             DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] Event received before init, skipping" .. AQL.RESET)
+        end
+        return
+    end
+
+    -- Suppress QUEST_LOG_UPDATE / QUEST_WATCH_LIST_CHANGED events fired synchronously
+    -- by Retail WoW API calls inside QuestCache._buildEntry (e.g. C_QuestLog calls that
+    -- trigger the event as a side-effect). Real player-action events bypass this gate.
+    if not bypassCooldown and GetTime() < EventEngine.rebuildCooldownUntil then
+        if AQL.debug == "verbose" then
+            DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] handleQuestLogUpdate suppressed (cooldown)" .. AQL.RESET)
         end
         return
     end
@@ -487,6 +504,9 @@ local function handleQuestLogUpdate()
         AQL.provider = AQL.providers[AQL.Capability.Chain] or AQL.NullProvider
 
         local oldCache = AQL.QuestCache:Rebuild()
+        -- Set cooldown after rebuild so any QUEST_LOG_UPDATE fired synchronously
+        -- by Rebuild's own API calls is suppressed rather than scheduling another rebuild.
+        EventEngine.rebuildCooldownUntil = GetTime() + 0.1
         if oldCache == nil then return end
 
         runDiff(oldCache)
@@ -544,13 +564,13 @@ frame:SetScript("OnEvent", function(self, event, ...)
         -- on the argument type and works for all WoW versions.
         EventEngine.pendingAcceptCount = EventEngine.pendingAcceptCount + 1
         AQL:_ClearChainSelectionCache()
-        handleQuestLogUpdate()
+        handleQuestLogUpdate(true)  -- bypass cooldown: real player action
     elseif event == "QUEST_REMOVED" then
         -- Reset the count so a stale accept cannot fire for a quest that was removed
         -- (e.g. player accepted then immediately abandoned before the diff ran).
         EventEngine.pendingAcceptCount = 0
         AQL:_ClearChainSelectionCache()
-        handleQuestLogUpdate()
+        handleQuestLogUpdate(true)  -- bypass cooldown: real player action
     elseif event == "QUEST_TURNED_IN" then
         -- Set pendingTurnIn so objective regression during item transfer is suppressed.
         -- Do NOT call handleQuestLogUpdate here — QUEST_REMOVED fires next and drives

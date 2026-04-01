@@ -205,23 +205,36 @@ end
 -- Explicit boolean coercion: IsQuestWatched returns 1/nil on legacy clients.
 -- ById variant resolves questID → logIndex via GetQuestLogIndex.
 -- Returns nil from ById if the quest is not in the player's log.
--- On Retail: ByIndex resolves logIndex → questID via GetQuestLogInfo, then calls
--- C_QuestLog.IsQuestWatched(questID). Returns false if logIndex has no entry.
--- ById calls C_QuestLog.IsQuestWatched(questID) directly.
+-- On Retail: C_QuestLog.IsQuestWatched was removed in a later build.
+--   Primary:  C_QuestLog.IsQuestWatched(questID) if present.
+--   Fallback: C_QuestLog.GetQuestWatchType(questID) ~= nil (non-nil = watched).
+--   Both nil: returns false.
 ------------------------------------------------------------------------
 
 function WowQuestAPI.IsQuestWatchedByIndex(logIndex)
     if IS_RETAIL then
         local info = WowQuestAPI.GetQuestLogInfo(logIndex)
         if not info or not info.questID then return false end
-        return C_QuestLog.IsQuestWatched(info.questID) and true or false
+        if C_QuestLog.IsQuestWatched then
+            return C_QuestLog.IsQuestWatched(info.questID) and true or false
+        end
+        if C_QuestLog.GetQuestWatchType then
+            return C_QuestLog.GetQuestWatchType(info.questID) ~= nil
+        end
+        return false
     end
     return IsQuestWatched(logIndex) and true or false
 end
 
 function WowQuestAPI.IsQuestWatchedById(questID)
     if IS_RETAIL then
-        return C_QuestLog.IsQuestWatched(questID) and true or false
+        if C_QuestLog.IsQuestWatched then
+            return C_QuestLog.IsQuestWatched(questID) and true or false
+        end
+        if C_QuestLog.GetQuestWatchType then
+            return C_QuestLog.GetQuestWatchType(questID) ~= nil
+        end
+        return false
     end
     local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
     if not logIndex then return nil end
@@ -332,8 +345,12 @@ end
 
 -- GetQuestLogSelection() → logIndex
 -- Returns the currently selected quest log entry index, or 0 if none selected.
--- On Retail: GetQuestLogSelection() may be absent; returns 0 as safe fallback.
+-- On Retail: always returns 0 — the save/restore in QuestCache:Rebuild is only
+-- needed to undo ExpandQuestHeader calls, which are no-ops on Retail. Allowing a
+-- real logIndex to flow through would cause SelectQuestLogEntry to call
+-- C_QuestLog.SetSelectedQuest(), which fires QUEST_LOG_UPDATE and loops the rebuild.
 function WowQuestAPI.GetQuestLogSelection()
+    if IS_RETAIL then return 0 end
     if GetQuestLogSelection then return GetQuestLogSelection() end
     return 0
 end
@@ -374,27 +391,60 @@ end
 -- Returns the time remaining in seconds for the selected quest's timer,
 -- or nil if the selected quest has no timer.
 -- Selection-dependent: call SelectQuestLogEntry(logIndex) first.
+-- Nil-guards the global: GetQuestLogTimeLeft may be absent on Retail.
 function WowQuestAPI.GetQuestLogTimeLeft()
-    return GetQuestLogTimeLeft()
+    if GetQuestLogTimeLeft then return GetQuestLogTimeLeft() end
+    return nil
+end
+
+-- GetQuestTimerByIndex(logIndex) → seconds or nil
+-- Returns time remaining for the quest at logIndex, or nil if no timer.
+-- On Classic/TBC/MoP: selects the entry then reads GetQuestLogTimeLeft().
+-- On Retail: C_QuestLog.SetSelectedQuest() fires QUEST_LOG_UPDATE and would
+--   cause a rebuild loop — returns nil instead.
+--   TODO: implement Retail timer via C_QuestLog.GetTimeAllowed(questID).
+function WowQuestAPI.GetQuestTimerByIndex(logIndex)
+    if IS_RETAIL then return nil end
+    WowQuestAPI.SelectQuestLogEntry(logIndex)
+    local rawTimer = WowQuestAPI.GetQuestLogTimeLeft()
+    return (rawTimer and rawTimer > 0) and rawTimer or nil
 end
 
 -- GetQuestLinkByIndex(logIndex) → hyperlink string or nil
 -- Returns the chat hyperlink for the quest at logIndex.
+-- On Retail: GetQuestLink global removed. C_QuestLog.GetQuestLink also absent on
+--   some builds (Interface 120001+); nil-guarded. Returns nil when unavailable —
+--   callers should fall back to manual hyperlink construction.
+-- On Classic/TBC/MoP: nil-guards GetQuestLink for robustness.
 function WowQuestAPI.GetQuestLinkByIndex(logIndex)
-    return GetQuestLink(logIndex)
+    if IS_RETAIL then
+        if C_QuestLog.GetQuestLink then
+            local info = WowQuestAPI.GetQuestLogInfo(logIndex)
+            if info and info.questID then
+                return C_QuestLog.GetQuestLink(info.questID)
+            end
+        end
+        return nil
+    end
+    if GetQuestLink then return GetQuestLink(logIndex) end
+    return nil
 end
 
 -- GetQuestLinkById(questID) → hyperlink string or nil
--- On Retail: calls C_QuestLog.GetQuestLink(questID) directly.
+-- On Retail: C_QuestLog.GetQuestLink nil-guarded (absent on Interface 120001+).
 -- On Classic/TBC/MoP: resolves questID → logIndex, then calls GetQuestLink(logIndex).
 -- Returns nil if the quest link is unavailable.
 function WowQuestAPI.GetQuestLinkById(questID)
     if IS_RETAIL then
-        return C_QuestLog.GetQuestLink(questID)
+        if C_QuestLog.GetQuestLink then
+            return C_QuestLog.GetQuestLink(questID)
+        end
+        return nil
     end
     local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
     if not logIndex then return nil end
-    return GetQuestLink(logIndex)
+    if GetQuestLink then return GetQuestLink(logIndex) end
+    return nil
 end
 
 -- GetCurrentDisplayedQuestID() → number or nil

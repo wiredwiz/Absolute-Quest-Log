@@ -1,6 +1,56 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 3.1.3 (April 2026)
+===========================
+- Bug fix: Infinite QUEST_LOG_UPDATE loop persisted on Retail even after 3.1.1 and 3.1.2
+  fixes. Root cause: some Retail C_QuestLog API calls inside QuestCache._buildEntry still
+  fire QUEST_LOG_UPDATE synchronously as a side-effect, re-entering handleQuestLogUpdate
+  mid-rebuild and scheduling another rebuild for every quest in the log. Fix: added a
+  post-rebuild cooldown gate in EventEngine.lua. After each rebuild completes,
+  EventEngine.rebuildCooldownUntil is set to GetTime() + 0.1s. Any QUEST_LOG_UPDATE or
+  QUEST_WATCH_LIST_CHANGED event received during that 100ms window is silently dropped.
+  Real player-action events (QUEST_ACCEPTED, QUEST_REMOVED) bypass the gate via a
+  bypassCooldown=true parameter and are never suppressed.
+
+Version 3.1.2 (April 2026)
+===========================
+- Bug fix: Infinite QUEST_LOG_UPDATE loop continued after 3.1.1 fix. Root cause:
+  WowQuestAPI.GetQuestLogSelection() did not guard for IS_RETAIL. If the
+  GetQuestLogSelection global exists on Retail and returns a non-zero logIndex, the
+  Phase 5 restore in QuestCache:Rebuild() calls SelectQuestLogEntry(), which calls
+  C_QuestLog.SetSelectedQuest(), which fires QUEST_LOG_UPDATE. GetQuestLogSelection
+  now returns 0 unconditionally on Retail — the save/restore is only needed to undo
+  ExpandQuestHeader calls, which are no-ops on Retail anyway.
+- Bug fix: GetQuestLinkByIndex() and GetQuestLinkById() called C_QuestLog.GetQuestLink
+  without nil-guarding. C_QuestLog.GetQuestLink is absent on Interface 120001. Both
+  wrappers now nil-guard it and return nil when absent (callers fall back to manual
+  hyperlink construction).
+
+Version 3.1.1 (April 2026)
+===========================
+- Bug fix: Infinite QUEST_LOG_UPDATE loop on Retail. QuestCache._buildEntry called
+  WowQuestAPI.SelectQuestLogEntry(logIndex) per quest to read the timer; on Retail
+  this calls C_QuestLog.SetSelectedQuest() which fires QUEST_LOG_UPDATE, scheduling
+  another rebuild — repeating for every quest in the log. Fix: new
+  WowQuestAPI.GetQuestTimerByIndex(logIndex) wrapper that skips the select+timer
+  block entirely on Retail (returns nil). _buildEntry now calls GetQuestTimerByIndex
+  instead of SelectQuestLogEntry + GetQuestLogTimeLeft.
+- Bug fix: GetQuestLogTimeLeft() called the bare global which may be nil on Retail.
+  Added nil-guard; returns nil when global absent.
+- Bug fix: GetQuestLinkByIndex(logIndex) called GetQuestLink(logIndex) global which
+  is absent on Retail. On Retail, resolves logIndex → questID via GetQuestLogInfo
+  then calls C_QuestLog.GetQuestLink(questID). Also nil-guards GetQuestLink on
+  legacy clients for robustness.
+
+Version 3.1.0 (April 2026)
+===========================
+- Bug fix: WowQuestAPI.IsQuestWatchedByIndex() and IsQuestWatchedById() crashed on
+  Retail — C_QuestLog.IsQuestWatched was removed in a later Retail build. Both
+  wrappers now nil-check C_QuestLog.IsQuestWatched first; if absent, fall back to
+  C_QuestLog.GetQuestWatchType(questID) ~= nil (non-nil = watched); if both absent,
+  return false.
+
 Version 3.0.1 (April 2026)
 ===========================
 - Bug fix: WowQuestAPI.GetNumQuestLogEntries() crashed on Retail —

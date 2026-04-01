@@ -340,6 +340,21 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 3.1.3 (April 2026)
+- Bug fix: Infinite `QUEST_LOG_UPDATE` loop persisted on Retail even after 3.1.1 and 3.1.2 fixes. Root cause: some Retail `C_QuestLog` API calls inside `QuestCache._buildEntry` still fire `QUEST_LOG_UPDATE` synchronously as a side-effect, re-entering `handleQuestLogUpdate` mid-rebuild and scheduling another rebuild for every quest in the log. Fix: added a post-rebuild cooldown gate in `EventEngine.lua`. After each rebuild completes, `EventEngine.rebuildCooldownUntil` is set to `GetTime() + 0.1`. Any `QUEST_LOG_UPDATE` or `QUEST_WATCH_LIST_CHANGED` received within that 100 ms window is silently dropped. Real player-action events (`QUEST_ACCEPTED`, `QUEST_REMOVED`) bypass the gate via `bypassCooldown=true` and are never suppressed.
+
+### Version 3.1.2 (April 2026)
+- Bug fix: Infinite `QUEST_LOG_UPDATE` loop continued after 3.1.1. `WowQuestAPI.GetQuestLogSelection()` had no `IS_RETAIL` guard — if the `GetQuestLogSelection` global exists on Retail and returns a non-zero logIndex, the Phase 5 restore in `QuestCache:Rebuild()` called `SelectQuestLogEntry()` → `C_QuestLog.SetSelectedQuest()` → fired `QUEST_LOG_UPDATE`. `GetQuestLogSelection` now returns 0 unconditionally on Retail; the save/restore is only needed to undo `ExpandQuestHeader` calls, which are no-ops on Retail.
+- Bug fix: `GetQuestLinkByIndex()` and `GetQuestLinkById()` called `C_QuestLog.GetQuestLink` without nil-guarding. `C_QuestLog.GetQuestLink` is absent on Interface 120001. Both wrappers now nil-guard it and return nil when absent (callers fall back to manual hyperlink construction).
+
+### Version 3.1.1 (April 2026)
+- Bug fix: Infinite `QUEST_LOG_UPDATE` loop on Retail. `QuestCache._buildEntry` called `WowQuestAPI.SelectQuestLogEntry(logIndex)` per quest to fetch the timer; on Retail this calls `C_QuestLog.SetSelectedQuest()` which fires `QUEST_LOG_UPDATE` synchronously, bumping the debounce generation mid-rebuild and scheduling another rebuild. Repeats for every quest in the log. Fix: new `WowQuestAPI.GetQuestTimerByIndex(logIndex)` wrapper that skips the select+timer block entirely on Retail (returns nil). `_buildEntry` now calls `GetQuestTimerByIndex` instead of the separate `SelectQuestLogEntry` + `GetQuestLogTimeLeft` calls.
+- Bug fix: `WowQuestAPI.GetQuestLogTimeLeft()` called the bare global which is absent on Retail. Added nil-guard; returns nil when the global is not present.
+- Bug fix: `WowQuestAPI.GetQuestLinkByIndex(logIndex)` called `GetQuestLink(logIndex)` which is absent on Retail. On Retail, resolves `logIndex → questID` via `GetQuestLogInfo` then calls `C_QuestLog.GetQuestLink(questID)`. Added nil-guard for `GetQuestLink` on legacy clients.
+
+### Version 3.1.0 (April 2026)
+- Bug fix: `WowQuestAPI.IsQuestWatchedByIndex()` and `IsQuestWatchedById()` crashed on Retail with "attempt to call field 'IsQuestWatched' (a nil value)" — `C_QuestLog.IsQuestWatched` was removed in a later Retail build. Both wrappers now nil-check `C_QuestLog.IsQuestWatched` first; if absent, fall back to `C_QuestLog.GetQuestWatchType(questID) ~= nil` (non-nil = watched); if both absent, return false.
+
 ### Version 3.0.1 (April 2026)
 - Bug fix: `WowQuestAPI.GetNumQuestLogEntries()` crashed on Retail with "attempt to call global 'GetNumQuestLogEntries' (a nil value)" — the global was removed in Retail. Added Retail branch calling `C_QuestLog.GetNumQuestLogEntries()` (returns numEntries as first value).
 - Bug fix: `WowQuestAPI.GetQuestLogTitle()` called the removed `GetQuestLogTitle` global on Retail. Added Retail branch mapping `C_QuestLog.GetInfo(logIndex)` fields to the legacy 8-value positional return format (`title, level, suggestedGroup, isHeader, isCollapsed, isComplete, 0, questID`).

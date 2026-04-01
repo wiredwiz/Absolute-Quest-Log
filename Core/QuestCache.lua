@@ -126,12 +126,10 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     local isFailed   = false
     local failReason = nil
 
-    -- Timer: requires selecting the quest log entry.
-    -- SelectQuestLogEntry briefly changes quest log UI selection; this is safe
-    -- to do during cache rebuild since it is instantaneous and non-destructive.
-    WowQuestAPI.SelectQuestLogEntry(logIndex)
-    local rawTimer = WowQuestAPI.GetQuestLogTimeLeft()
-    local timerSeconds = (rawTimer and rawTimer > 0) and rawTimer or nil
+    -- Timer: legacy path selects the entry then reads GetQuestLogTimeLeft().
+    -- On Retail, C_QuestLog.SetSelectedQuest fires QUEST_LOG_UPDATE which would
+    -- cause a rebuild loop; GetQuestTimerByIndex skips the call on Retail.
+    local timerSeconds = WowQuestAPI.GetQuestTimerByIndex(logIndex)
 
     -- Quest link: prefer the WoW native API; construct manually if it returns nil
     -- so every QuestCache entry has a valid hyperlink regardless of client version.
