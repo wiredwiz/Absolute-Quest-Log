@@ -207,12 +207,13 @@ end
 -- reverseMap[prereqID] = { questID1, questID2, ... }
 ------------------------------------------------------------------------
 
-local reverseMap      = {}
-local reverseMapBuilt = false
-local MAX_CHAIN_DEPTH = 50
-local variantGroups    = {}   -- [canonicalID] = { id1, id2, ... }
-local variantOf        = {}   -- [nonCanonicalID] = canonicalID
-local variantChainCache = {}  -- [canonicalID] = { steps = ..., questCount = ... }; populated by buildVariantChain
+local reverseMap          = {}
+local reverseMapBuilt     = false
+local MAX_CHAIN_DEPTH     = 50
+local variantGroups       = {}   -- [canonicalID] = { id1, id2, ... }
+local variantOf           = {}   -- [nonCanonicalID] = canonicalID
+local variantChainCache   = {}   -- [canonicalID] = { steps = ..., questCount = ... }; populated by buildVariantChain
+local titleToReverseMapIDs = {}  -- [name] = { id1, id2, ... }  (IDs that appear as reverseMap keys)
 
 local function buildReverseMap()
     if reverseMapBuilt then return end
@@ -222,6 +223,8 @@ local function buildReverseMap()
     -- finished populating it yet (race condition on PLAYER_LOGIN). A later call
     -- will retry once the table has data.
     if not next(g.questPrerequisites) then return end
+    -- Reset derived tables so they stay consistent with reverseMap.
+    titleToReverseMapIDs = {}
     for questID, prereqStr in pairs(g.questPrerequisites) do
         -- Normalize questID to a number. Grail may use string or numeric keys
         -- depending on version; downstream code (g:QuestName, reverseMap lookups)
@@ -266,6 +269,18 @@ local function buildReverseMap()
             for i = 2, #group do
                 variantOf[group[i]] = canonical
             end
+        end
+    end
+    -- Third pass: build titleToReverseMapIDs for O(1) Path 2 lookups.
+    -- Maps quest name → list of questIDs that appear as keys in reverseMap.
+    for id in pairs(reverseMap) do
+        local name = g:QuestName(id)
+        if name then
+            if not titleToReverseMapIDs[name] then
+                titleToReverseMapIDs[name] = {}
+            end
+            local t = titleToReverseMapIDs[name]
+            t[#t + 1] = id
         end
     end
     reverseMapBuilt = true
@@ -716,31 +731,62 @@ local function buildVariantChain(canonicalID)
     return steps, questCount
 end
 
+-- Annotate step statuses in-place using current HistoryCache/QuestCache.
+-- Operates on a copy of the steps array (see deepCopySteps); never mutates cached objects.
+local function annotateSteps(steps)
+    for i, step in ipairs(steps) do
+        if step.questID then
+            step.status = classifyStatus(step.questID, i, steps)
+        elseif step.quests then
+            for _, sq in ipairs(step.quests) do
+                sq.status = classifyStatus(sq.questID, i, steps)
+            end
+        end
+    end
+end
+
+-- Deep-copy steps two levels deep so cached step objects are never mutated by annotateSteps.
+-- Single-quest steps: copy the step table (questID, title, status).
+-- Group steps: copy the outer step table (quests, groupType) and each sub-quest table inside quests.
+-- status in the copy is reset to Unknown so annotateSteps always writes fresh values.
+local function deepCopySteps(steps)
+    local copy = {}
+    for i, step in ipairs(steps) do
+        if step.questID then
+            copy[i] = {
+                questID = step.questID,
+                title   = step.title,
+                status  = AQL.StepStatus.Unknown,
+            }
+        else
+            -- Group step: copy outer table and each sub-quest.
+            local subCopy = {}
+            for j, sq in ipairs(step.quests) do
+                subCopy[j] = {
+                    questID = sq.questID,
+                    title   = sq.title,
+                    status  = AQL.StepStatus.Unknown,
+                }
+            end
+            copy[i] = { quests = subCopy, groupType = step.groupType }
+        end
+    end
+    return copy
+end
+
 function GrailProvider:GetChainInfo(questID)
     local g = _G["Grail"]
     if not g then return { knownStatus = AQL.ChainStatus.Unknown } end
     buildReverseMap()
 
-    -- Helper: annotate step statuses in-place using current HistoryCache/QuestCache.
-    local function annotateSteps(steps)
-        for i, step in ipairs(steps) do
-            if step.questID then
-                step.status = classifyStatus(step.questID, i, steps)
-            elseif step.quests then
-                for _, sq in ipairs(step.quests) do
-                    sq.status = classifyStatus(sq.questID, i, steps)
-                end
-            end
-        end
-    end
-
     -- Path 1: variant root (canonical or non-canonical).
     local canonical = variantOf[questID] or (variantGroups[questID] and questID)
     if canonical then
-        local steps, questCount = buildVariantChain(canonical)
-        if #steps >= 2 then
-            local stepNum = findStepForQuestID(questID, steps)
+        local cachedSteps, questCount = buildVariantChain(canonical)
+        if #cachedSteps >= 2 then
+            local stepNum = findStepForQuestID(questID, cachedSteps)
             if stepNum then
+                local steps = deepCopySteps(cachedSteps)
                 annotateSteps(steps)
                 return {
                     knownStatus = AQL.ChainStatus.Known,
@@ -758,32 +804,36 @@ function GrailProvider:GetChainInfo(questID)
         return { knownStatus = AQL.ChainStatus.NotAChain }
     end
 
-    -- Path 2: questID has no graph edges — search for a same-title variant root.
+    -- Path 2: questID has no graph edges — O(1) lookup via titleToReverseMapIDs.
     local hasPrereqs    = g.questPrerequisites[questID] and g.questPrerequisites[questID] ~= ""
     local hasSuccessors = reverseMap[questID] and #reverseMap[questID] > 0
     if not hasPrereqs and not hasSuccessors then
         local title = g:QuestName(questID)
         if title then
-            for altID in pairs(reverseMap) do
-                if altID ~= questID and g:QuestName(altID) == title then
-                    local altCanonical = variantOf[altID] or (variantGroups[altID] and altID)
-                    if altCanonical then
-                        local steps, questCount = buildVariantChain(altCanonical)
-                        if #steps >= 2 then
-                            local stepNum = findStepForQuestID(altID, steps)
-                            if stepNum then
-                                annotateSteps(steps)
-                                return {
-                                    knownStatus = AQL.ChainStatus.Known,
-                                    chains = {{
-                                        chainID    = altCanonical,
-                                        step       = stepNum,
-                                        length     = #steps,
-                                        questCount = questCount,
-                                        steps      = steps,
-                                        provider   = AQL.Provider.Grail,
-                                    }}
-                                }
+            local candidates = titleToReverseMapIDs[title]
+            if candidates then
+                for _, altID in ipairs(candidates) do
+                    if altID ~= questID then
+                        local altCanonical = variantOf[altID] or (variantGroups[altID] and altID)
+                        if altCanonical then
+                            local cachedSteps, questCount = buildVariantChain(altCanonical)
+                            if #cachedSteps >= 2 then
+                                local stepNum = findStepForQuestID(altID, cachedSteps)
+                                if stepNum then
+                                    local steps = deepCopySteps(cachedSteps)
+                                    annotateSteps(steps)
+                                    return {
+                                        knownStatus = AQL.ChainStatus.Known,
+                                        chains = {{
+                                            chainID    = altCanonical,
+                                            step       = stepNum,
+                                            length     = #steps,
+                                            questCount = questCount,
+                                            steps      = steps,
+                                            provider   = AQL.Provider.Grail,
+                                        }}
+                                    }
+                                end
                             end
                         end
                     end
@@ -803,15 +853,16 @@ function GrailProvider:GetChainInfo(questID)
         if not seenRoots[root] then
             seenRoots[root] = true
             local rootCanonical = variantOf[root] or (variantGroups[root] and root)
-            local steps, questCount
+            local cachedSteps, questCount
             if rootCanonical then
-                steps, questCount = buildVariantChain(rootCanonical)
+                cachedSteps, questCount = buildVariantChain(rootCanonical)
             else
-                steps, questCount = buildChainFromRoot(root)
+                cachedSteps, questCount = buildChainFromRoot(root)
             end
-            if #steps >= 2 then
-                local stepNum = findStepForQuestID(questID, steps)
+            if #cachedSteps >= 2 then
+                local stepNum = findStepForQuestID(questID, cachedSteps)
                 if stepNum then
+                    local steps = deepCopySteps(cachedSteps)
                     annotateSteps(steps)
                     chains[#chains + 1] = {
                         chainID    = rootCanonical or root,

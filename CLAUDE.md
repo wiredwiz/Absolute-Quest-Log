@@ -340,6 +340,44 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 3.2.5 (April 2026)
+- Bug fix: `GrailProvider.GetChainInfo` was calling `annotateSteps` directly on the cached
+  steps array returned by `buildVariantChain` / `buildChainFromRoot`. Because `variantChainCache`
+  stores a direct reference to the same `steps` table, each `GetChainInfo` call overwrote
+  `.status` fields on cached step objects — any consumer holding a prior reference would see
+  stale statuses from the latest call. Fixed by adding `deepCopySteps` (two-level fixed-depth
+  copy: outer steps array + each step table, plus sub-quest tables inside group steps). All
+  three code paths in `GetChainInfo` (Path 1, Path 2, Path 3) now deep-copy before annotating;
+  the cached originals are never mutated.
+- Performance fix: `GetChainInfo` Path 2 (questID with no graph edges, searching for a
+  same-title variant root) iterated `pairs(reverseMap)` — O(N) over the entire Grail database
+  per call on Retail. Fixed by adding a third pass in `buildReverseMap` that populates
+  `titleToReverseMapIDs[name] = { id1, id2, ... }` for every key in `reverseMap`. Path 2 now
+  does a single `titleToReverseMapIDs[title]` lookup instead of a full scan.
+- Refactor: `annotateSteps` hoisted from a closure defined inside `GetChainInfo` on every call
+  to a module-level `local function`. No behavioral change; eliminates repeated closure allocation.
+
+### Version 3.2.4 (April 2026)
+- Bug fix (Retail): `buildReverseMap` stored successor questIDs directly from `pairs(g.questPrerequisites)` without normalizing type. If Grail uses string keys, stored values were strings; `g:QuestName(stringID)` returns nil (Grail uses numeric keys internally), causing `allSameTitle` to return false and `buildChainFromRoot` to break at the first multi-variant step. Fix: store `tonumber(questID) or questID` so reverseMap values are always numbers when possible. This unblocks same-title variant step detection and chain traversal beyond step 2.
+- Bug fix (Retail): `GetChainInfo` fallback for unlinked variant questIDs (e.g. 28763 for "Beating Them Back!" — absent from Grail's prereq graph) previously searched `QuestCache.data` for a same-title quest with `knownStatus = Known`. This had a timing dependency: if the PLAYER_LOGIN rebuild ran before the reverseMap was populated, 28766's `chainInfo` was stored as `"not_a_chain"` and the fallback found no match. Replaced with a direct `reverseMap` key search (reverseMap keys are always numeric questIDs with known successors). If a key's title matches the variant's title via `g:QuestName`, that is the canonical questID — its chain is built via `findRoots` + `buildChainFromRoot` and returned. No QuestCache dependency, no timing issues.
+
+### Version 3.2.3 (April 2026)
+- Bug fix (Retail): `GrailProvider.buildChainFromRoot` stopped chain traversal when a quest had multiple successors that did not share a downstream convergence point. On Retail, each chain step has many race/class variant questIDs stored as independent successors in Grail's prerequisite graph — not genuinely divergent branches. Fix: two new helpers (`allSameTitle`, `collectSuccessors`) added before `buildChainFromRoot`. When multiple successors fail the convergence check, their titles are compared via `g:QuestName`. If all share the same title, they are grouped as a `"parallel"` variant step and traversal continues with the union of their successors. Applies to both the single-wave and multi-wave loop paths. Chain length now reflects the full Grail-known chain rather than stopping at the first multi-variant step.
+- Bug fix (Retail): `GrailProvider.GetChainInfo` returned `"not_a_chain"` for Retail variant questIDs absent from Grail's prerequisite graph (e.g. the local player's questID differs from the canonical one Grail recorded). Fix: before returning `NotAChain`, the quest's title is looked up via `g:QuestName` and `QuestCache.data` is searched for a same-title quest with `knownStatus = Known`. If found, that chain info is returned, allowing consumers to group both variants under the same `chainID`.
+
+### Version 3.2.2 (April 2026)
+- Bug fix: `GrailProvider.buildReverseMap()` set `reverseMapBuilt = true` even when Grail's `questPrerequisites` table was empty at call time. This created a permanent race condition on `/reload`: AQL's `PLAYER_LOGIN` handler calls `GetChainInfo` (via `QuestCache._buildEntry`) before Grail finishes populating `questPrerequisites`, so the reverse map was built empty and locked — all subsequent `GetChainInfo` calls returned `"not_a_chain"` for the rest of the session. Fix: added an early-return guard (`if not next(g.questPrerequisites) then return end`) before the loop body, so `buildReverseMap` does not set `reverseMapBuilt = true` when the table is empty. The next call after Grail populates the table completes the build correctly.
+
+### Version 3.2.1 (April 2026)
+- Bug fix: `GrailProvider:GetQuestBasicInfo` was calling `WowQuestAPI.GetAreaInfo(mapArea)` to resolve zone names, but Grail's `mapArea` values are uiMapIDs, not AreaTable IDs. `C_Map.GetAreaInfo` expects an AreaTable ID — passing a uiMapID returned an unrelated sub-area name (e.g. uiMapID 12 → AreaTable ID 12 → "Moonwell of Purity" instead of "Elwynn Forest"). Fixed by calling `g:MapAreaName(mapArea)` instead, which uses Grail's own `mapAreaMapping` table (uiMapID → localized zone name, built at startup via `C_Map.GetMapInfo`). Correct on all WoW version families.
+
+### Version 3.2.0 (April 2026)
+- Bug fix (defensive): `WowQuestAPI.GetQuestInfo` Retail branch and `QuestCache:Rebuild()` now skip campaign/chapter headers when tracking the current zone. On Retail, `C_QuestLog.GetInfo()` returns both geographic zone headers and campaign chapter headers (both have `isHeader = true`). The previous code blindly assigned `currentZone = info.title` for any header, which could set campaign chapter names as zone labels. Both code paths now guard with `if not (info.campaignID and info.campaignID ~= 0)` before updating `currentZone`.
+- New: `WowQuestAPI.GetQuestLogInfo()` Retail return table now includes `campaignID` field, needed by `QuestCache:Rebuild()` for the campaign header guard.
+
+### Version 3.1.5 (April 2026)
+- Bug fix: `WowQuestAPI.GetQuestInfo` crashed on Retail with "attempt to call field 'GetQuestInfo' (a nil value)". The Retail branch was calling `C_QuestLog.GetQuestInfo(questID)`, which was removed in Patch 9.0.1 (Shadowlands, 2020) — the original code was always wrong on current Retail. Fixed by replacing the Retail branch with the same Tier-1 log scan + Tier-2 fallback pattern used by the Classic/TBC/MoP branch: scan via `C_QuestLog.GetNumQuestLogEntries()` + `C_QuestLog.GetInfo(i)` (returning zone, level, and full fields when the quest is in the log), then fall back to `C_QuestLog.GetTitleForQuestID(questID)` for quests not in the log. `isComplete` normalized to boolean (`== true`) since `C_QuestLog.GetInfo` returns boolean on Retail, not 0/1. This fixes `AQL:GetQuestInfo` and `AQL:GetQuestTitle` on Retail.
+
 ### Version 3.1.4 (April 2026)
 - Scope fix: post-rebuild cooldown gate (`rebuildCooldownUntil`) in `EventEngine.lua` now only activates on Retail. The 3.1.3 fix set the cooldown unconditionally after every rebuild, which could suppress legitimate `QUEST_LOG_UPDATE` events within 100 ms on Classic/TBC/MoP. The cooldown set is now guarded by `WowQuestAPI.IS_RETAIL`; on all other versions `rebuildCooldownUntil` stays 0 and the gate is always a no-op.
 - New: `WowQuestAPI.IS_RETAIL`, `IS_TBC`, `IS_CLASSIC_ERA`, `IS_MOP` exported as fields on `WowQuestAPI` so other AQL modules can reference version flags without re-parsing the TOC version independently.
