@@ -340,6 +340,15 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 3.2.6 (April 2026)
+- Feature: `AQL:GetChainInfo(questID)` now falls through to the Chain provider when
+  `QuestCache` has no Known answer for the queried questID. Previously, questIDs not in
+  the local player's log (e.g. a party member's Retail variant questID) always returned
+  `knownStatus = Unknown`. Now the Chain provider (e.g. GrailProvider) is consulted as a
+  tier-2 source; its result is returned when Known. Cache is still preferred when Known —
+  the provider is only consulted when the cache has no Known result. The `pcall` guard
+  is consistent with how EventEngine calls providers.
+
 ### Version 3.2.5 (April 2026)
 - Bug fix: `GrailProvider.GetChainInfo` was calling `annotateSteps` directly on the cached
   steps array returned by `buildVariantChain` / `buildChainFromRoot`. Because `variantChainCache`

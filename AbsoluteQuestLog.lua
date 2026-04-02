@@ -250,14 +250,23 @@ end
 local selectionCache = {}
 
 -- GetChainInfo(questID) → ChainInfo
--- Returns chain info from the cache. Falls back to
--- { knownStatus = AQL.ChainStatus.Unknown } when not found. Never returns nil.
+-- Returns chain info from the cache when Known. If cache has no Known answer,
+-- delegates to the Chain provider (e.g. GrailProvider) as a tier-2 source.
+-- Falls back to cached result (even if NotAChain) or Unknown if provider fails.
+-- Never returns nil.
 function AQL:GetChainInfo(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
-    if q and q.chainInfo then
+    if q and q.chainInfo and q.chainInfo.knownStatus == self.ChainStatus.Known then
         return q.chainInfo
     end
-    return { knownStatus = AQL.ChainStatus.Unknown }
+    local provider = self.providers and self.providers[self.Capability.Chain]
+    if provider then
+        local ok, result = pcall(provider.GetChainInfo, provider, questID)
+        if ok and result and result.knownStatus == self.ChainStatus.Known then
+            return result
+        end
+    end
+    return (q and q.chainInfo) or { knownStatus = self.ChainStatus.Unknown }
 end
 
 -- GetChainStep(questID) → number or nil

@@ -64,7 +64,9 @@ function QuestCache:Rebuild()
                 info.title, info.level, info.suggestedGroup, info.isHeader,
                 info.isCollapsed, info.isComplete, info.questID
             if info.isHeader then
-                currentZone = info.title
+                if not (info.campaignID and info.campaignID ~= 0) then
+                    currentZone = info.title
+                end
             else
                 -- Wrap each entry build in pcall so one bad entry never aborts the loop.
                 local ok, entryOrErr = pcall(self._buildEntry, self, questID, info, currentZone, i)

@@ -37,20 +37,41 @@ WowQuestAPI.IS_MOP         = IS_MOP
 
 if IS_RETAIL then
     function WowQuestAPI.GetQuestInfo(questID)
-        local info = C_QuestLog.GetQuestInfo(questID)
-        if not info or not info.title then return nil end
-        -- zone: not included; full Retail support is out of scope for this phase.
-        return {
-            questID        = questID,
-            title          = info.title,
-            level          = info.level,
-            suggestedGroup = info.suggestedGroup or 0,
-            isComplete     = info.isComplete == 1,
-            isTask         = info.isTask,
-            isBounty       = info.isBounty,
-            isStory        = info.isStory,
-            campaignID     = info.campaignID,
-        }
+        -- Tier 1: log scan — same pattern as Classic/TBC/MoP, using Retail APIs.
+        -- C_QuestLog.GetInfo returns a table per entry; isHeader rows carry the zone name.
+        -- isComplete is boolean on Retail (not 0/1 integer like legacy clients).
+        -- C_QuestLog.GetNumQuestLogEntries() returns numEntries, numQuests; capture first only.
+        local numEntries = C_QuestLog.GetNumQuestLogEntries()
+        local currentZone
+        for i = 1, numEntries do
+            local info = C_QuestLog.GetInfo(i)
+            if info then
+                if info.isHeader then
+                    if not (info.campaignID and info.campaignID ~= 0) then
+                        currentZone = info.title
+                    end
+                elseif info.questID == questID then
+                    return {
+                        questID        = questID,
+                        title          = info.title,
+                        level          = info.level,
+                        suggestedGroup = info.suggestedGroup or 0,
+                        isComplete     = info.isComplete == true,
+                        zone           = currentZone,
+                        isTask         = info.isTask,
+                        isBounty       = info.isBounty,
+                        isStory        = info.isStory,
+                        campaignID     = info.campaignID,
+                    }
+                end
+            end
+        end
+        -- Tier 2: quest not in log — title-only fallback.
+        -- C_QuestLog.GetQuestInfo was removed in Patch 9.0.1 (Shadowlands).
+        -- GetTitleForQuestID is the canonical replacement for out-of-log title lookup.
+        local title = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID)
+        if not title then return nil end
+        return { questID = questID, title = title }
     end
 else  -- IS_TBC, IS_CLASSIC_ERA, and IS_MOP (same log-scan API on all three versions)
     function WowQuestAPI.GetQuestInfo(questID)
@@ -333,6 +354,7 @@ function WowQuestAPI.GetQuestLogInfo(logIndex)
             isCollapsed    = info.isCollapsed,
             isComplete     = info.isComplete,
             questID        = info.questID,
+            campaignID     = info.campaignID,
         }
     else
         local title, level, suggestedGroup, isHeader, isCollapsed, isComplete, _, questID =
