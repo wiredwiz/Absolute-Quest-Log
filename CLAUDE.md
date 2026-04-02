@@ -340,6 +340,10 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 3.1.4 (April 2026)
+- Scope fix: post-rebuild cooldown gate (`rebuildCooldownUntil`) in `EventEngine.lua` now only activates on Retail. The 3.1.3 fix set the cooldown unconditionally after every rebuild, which could suppress legitimate `QUEST_LOG_UPDATE` events within 100 ms on Classic/TBC/MoP. The cooldown set is now guarded by `WowQuestAPI.IS_RETAIL`; on all other versions `rebuildCooldownUntil` stays 0 and the gate is always a no-op.
+- New: `WowQuestAPI.IS_RETAIL`, `IS_TBC`, `IS_CLASSIC_ERA`, `IS_MOP` exported as fields on `WowQuestAPI` so other AQL modules can reference version flags without re-parsing the TOC version independently.
+
 ### Version 3.1.3 (April 2026)
 - Bug fix: Infinite `QUEST_LOG_UPDATE` loop persisted on Retail even after 3.1.1 and 3.1.2 fixes. Root cause: some Retail `C_QuestLog` API calls inside `QuestCache._buildEntry` still fire `QUEST_LOG_UPDATE` synchronously as a side-effect, re-entering `handleQuestLogUpdate` mid-rebuild and scheduling another rebuild for every quest in the log. Fix: added a post-rebuild cooldown gate in `EventEngine.lua`. After each rebuild completes, `EventEngine.rebuildCooldownUntil` is set to `GetTime() + 0.1`. Any `QUEST_LOG_UPDATE` or `QUEST_WATCH_LIST_CHANGED` received within that 100 ms window is silently dropped. Real player-action events (`QUEST_ACCEPTED`, `QUEST_REMOVED`) bypass the gate via `bypassCooldown=true` and are never suppressed.
 

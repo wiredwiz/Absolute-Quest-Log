@@ -1,6 +1,17 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 3.1.4 (April 2026)
+===========================
+- Scope fix: post-rebuild cooldown gate in EventEngine.lua now only activates on
+  Retail. The 3.1.3 fix set rebuildCooldownUntil unconditionally after every rebuild,
+  which could suppress legitimate QUEST_LOG_UPDATE events within 100ms on
+  Classic/TBC/MoP. The cooldown set is now guarded by WowQuestAPI.IS_RETAIL; on all
+  other versions rebuildCooldownUntil stays 0 and the gate check is always false.
+- New: WowQuestAPI.IS_RETAIL, IS_TBC, IS_CLASSIC_ERA, IS_MOP exported as fields on
+  WowQuestAPI so other AQL modules can gate version-specific behaviour without
+  re-parsing the TOC version.
+
 Version 3.1.3 (April 2026)
 ===========================
 - Bug fix: Infinite QUEST_LOG_UPDATE loop persisted on Retail even after 3.1.1 and 3.1.2

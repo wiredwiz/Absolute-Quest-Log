@@ -32,10 +32,10 @@ EventEngine.pendingAcceptCount  = 0   -- number of QUEST_ACCEPTED events fired a
 EventEngine.debounceGeneration  = 0   -- incremented on every QUEST_LOG_UPDATE; timer fires only when still current
 -- On Retail, some WoW API calls inside QuestCache._buildEntry fire QUEST_LOG_UPDATE
 -- synchronously, which re-enters handleQuestLogUpdate mid-rebuild and schedules another
--- rebuild, creating an infinite loop. After each rebuild completes we set a 100 ms
--- cooldown; subsequent QUEST_LOG_UPDATE / QUEST_WATCH_LIST_CHANGED calls within that
--- window are silently dropped. Calls triggered by real player actions (QUEST_ACCEPTED,
--- QUEST_REMOVED) pass bypassCooldown=true and are never suppressed.
+-- rebuild, creating an infinite loop (Retail only). After each rebuild, the cooldown
+-- is set on Retail to suppress noise events for 100 ms. Real player-action events
+-- (QUEST_ACCEPTED, QUEST_REMOVED) bypass the gate via bypassCooldown=true. On
+-- Classic/TBC/MoP this value stays 0 and the check is always false — no change.
 EventEngine.rebuildCooldownUntil = 0
 
 -- Hidden event frame.
@@ -504,9 +504,14 @@ local function handleQuestLogUpdate(bypassCooldown)
         AQL.provider = AQL.providers[AQL.Capability.Chain] or AQL.NullProvider
 
         local oldCache = AQL.QuestCache:Rebuild()
-        -- Set cooldown after rebuild so any QUEST_LOG_UPDATE fired synchronously
-        -- by Rebuild's own API calls is suppressed rather than scheduling another rebuild.
-        EventEngine.rebuildCooldownUntil = GetTime() + 0.1
+        -- On Retail some C_QuestLog calls inside Rebuild fire QUEST_LOG_UPDATE
+        -- synchronously as a side-effect. Gate subsequent noise events for 100 ms so
+        -- they don't schedule another rebuild. Scoped to Retail only — the loop does
+        -- not occur on Classic/TBC/MoP because SelectQuestLogEntry does not fire the
+        -- event on those clients.
+        if WowQuestAPI.IS_RETAIL then
+            EventEngine.rebuildCooldownUntil = GetTime() + 0.1
+        end
         if oldCache == nil then return end
 
         runDiff(oldCache)

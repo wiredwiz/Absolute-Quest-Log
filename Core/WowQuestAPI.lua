@@ -17,6 +17,13 @@ local IS_RETAIL      = _TOC >= 100000                  -- 11.x+: Retail (The War
 -- Note: WotLK (30000–39999) and Cata (40000–49999) are intentionally not covered.
 -- AQL is unsupported on those clients; the base toc (20505) serves as fallback.
 
+-- Expose version flags so other AQL modules (e.g. EventEngine) can gate
+-- version-specific behaviour without re-parsing the TOC version themselves.
+WowQuestAPI.IS_RETAIL      = IS_RETAIL
+WowQuestAPI.IS_TBC         = IS_TBC
+WowQuestAPI.IS_CLASSIC_ERA = IS_CLASSIC_ERA
+WowQuestAPI.IS_MOP         = IS_MOP
+
 ------------------------------------------------------------------------
 -- WowQuestAPI.GetQuestInfo(questID)
 -- Two-tier resolution. Returns nil when no source has data.
