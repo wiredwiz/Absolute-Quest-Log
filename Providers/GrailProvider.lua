@@ -52,13 +52,19 @@ function GrailProvider:GetQuestBasicInfo(questID)
     local title = g:QuestName(questID)
     if not title then return nil end
 
-    -- Zone: take the first accept-location record's mapArea, resolve via GetAreaInfo.
+    -- Zone: take the first accept-location record's mapArea and resolve via Grail's
+    -- own MapAreaName(). mapArea values are uiMapIDs, not AreaTable IDs — calling
+    -- C_Map.GetAreaInfo(mapArea) is wrong because GetAreaInfo expects AreaTable IDs
+    -- and passing a uiMapID returns an unrelated sub-area name.
+    -- g:MapAreaName() looks up Grail's mapAreaMapping table (uiMapID → localized zone
+    -- name) which is built at startup from C_Map.GetMapInfo and is correct on all
+    -- WoW version families.
     local zone
     local locs = g:QuestLocationsAccept(questID)
     if locs and locs[1] then
         local mapArea = locs[1].mapArea
         if mapArea then
-            zone = WowQuestAPI.GetAreaInfo(mapArea)
+            zone = g:MapAreaName(mapArea)
         end
     end
 
@@ -204,18 +210,61 @@ end
 local reverseMap      = {}
 local reverseMapBuilt = false
 local MAX_CHAIN_DEPTH = 50
+local variantGroups    = {}   -- [canonicalID] = { id1, id2, ... }
+local variantOf        = {}   -- [nonCanonicalID] = canonicalID
+local variantChainCache = {}  -- [canonicalID] = { steps = ..., questCount = ... }
 
 local function buildReverseMap()
     if reverseMapBuilt then return end
     local g = _G["Grail"]
     if not g or not g.questPrerequisites then return end
+    -- Do not lock as built if questPrerequisites is empty — Grail may not have
+    -- finished populating it yet (race condition on PLAYER_LOGIN). A later call
+    -- will retry once the table has data.
+    if not next(g.questPrerequisites) then return end
     for questID, prereqStr in pairs(g.questPrerequisites) do
+        -- Normalize questID to a number. Grail may use string or numeric keys
+        -- depending on version; downstream code (g:QuestName, reverseMap lookups)
+        -- expects numbers everywhere.
+        local numQuestID = tonumber(questID) or questID
         for token in prereqStr:gmatch("[^,+]+") do
             token = token:match("^%s*(.-)%s*$")
             if token:match("^%d+$") then
                 local prereqID = tonumber(token)
                 if not reverseMap[prereqID] then reverseMap[prereqID] = {} end
-                reverseMap[prereqID][#reverseMap[prereqID] + 1] = questID
+                reverseMap[prereqID][#reverseMap[prereqID] + 1] = numQuestID
+            end
+        end
+    end
+    -- Second pass: detect variant root groups.
+    -- Iterates reverseMap keys (questIDs that have successors) and groups
+    -- root questIDs (no plain-numeric prerequisites) that share the same
+    -- quest name AND accept zone. Canonical ID = smallest in each group.
+    local rootsByNameZone = {}
+    for questID in pairs(reverseMap) do
+        local prereqStr     = g.questPrerequisites[questID]
+        local plainNumerics = parsePlainNumericTokens(prereqStr)
+        if #plainNumerics == 0 then
+            local name = g:QuestName(questID)
+            if name then
+                local zone = nil
+                local locs = g:QuestLocationsAccept(questID)
+                if locs and locs[1] and locs[1].mapArea then
+                    zone = g:MapAreaName(locs[1].mapArea)
+                end
+                local key = name .. "\0" .. (zone or "")
+                if not rootsByNameZone[key] then rootsByNameZone[key] = {} end
+                rootsByNameZone[key][#rootsByNameZone[key] + 1] = questID
+            end
+        end
+    end
+    for _, group in pairs(rootsByNameZone) do
+        if #group >= 2 then
+            table.sort(group)
+            local canonical = group[1]
+            variantGroups[canonical] = group
+            for i = 2, #group do
+                variantOf[group[i]] = canonical
             end
         end
     end
@@ -338,6 +387,36 @@ local function classifyStatus(stepQuestID, stepIndex, steps)
     return AQL.StepStatus.Available
 end
 
+-- Returns true if all quests in the list share the same non-nil title per Grail.
+-- Used to detect race/class variant steps: multiple questIDs for the same logical
+-- quest stored as independent successors with no shared convergence point in Grail.
+local function allSameTitle(questList)
+    local g = _G["Grail"]
+    local first = g:QuestName(questList[1])
+    if not first then return false end
+    for k = 2, #questList do
+        if g:QuestName(questList[k]) ~= first then return false end
+    end
+    return true
+end
+
+-- Returns all unvisited successors across every quest in questList.
+-- Marks each returned successor as visited.
+local function collectSuccessors(questList, visited)
+    local seen = {}
+    local result = {}
+    for _, qid in ipairs(questList) do
+        for _, succ in ipairs(reverseMap[qid] or {}) do
+            if not visited[succ] and not seen[succ] then
+                seen[succ] = true
+                visited[succ] = true
+                result[#result + 1] = succ
+            end
+        end
+    end
+    return result
+end
+
 -- Build a single chain starting at rootQuestID using BFS forward walk.
 -- Returns steps array and total questCount.
 local function buildChainFromRoot(rootQuestID)
@@ -431,8 +510,24 @@ local function buildChainFromRoot(rootQuestID)
                     currentWave = {}
                     for ns in pairs(unionSuccessors) do currentWave[#currentWave + 1] = ns end
                 else
-                    -- Divergent paths: this chain ends here.
-                    break
+                    -- Not a convergent branch. Check if these are same-title race/class
+                    -- variants (Retail pattern: one logical quest, many questIDs).
+                    if allSameTitle(nextWave) then
+                        local subQuests = {}
+                        for _, s in ipairs(nextWave) do
+                            subQuests[#subQuests + 1] = {
+                                questID = s,
+                                title   = g:QuestName(s) or ("Quest " .. s),
+                                status  = AQL.StepStatus.Unknown,
+                            }
+                            questCount = questCount + 1
+                        end
+                        steps[#steps + 1] = { quests = subQuests, groupType = "parallel" }
+                        currentWave = collectSuccessors(nextWave, visited)
+                        if #currentWave == 0 then break end
+                    else
+                        break  -- genuinely divergent paths; end chain here
+                    end
                 end
             end
         else
@@ -484,7 +579,24 @@ local function buildChainFromRoot(rootQuestID)
                 currentWave = {}
                 for ns in pairs(unionSuccessors) do currentWave[#currentWave + 1] = ns end
             else
-                break  -- genuinely divergent paths; end chain here
+                -- Not a convergent branch. Check if these are same-title race/class
+                -- variants (Retail pattern: one logical quest, many questIDs).
+                if allSameTitle(currentWave) then
+                    local subQuests = {}
+                    for _, s in ipairs(currentWave) do
+                        subQuests[#subQuests + 1] = {
+                            questID = s,
+                            title   = g:QuestName(s) or ("Quest " .. s),
+                            status  = AQL.StepStatus.Unknown,
+                        }
+                        questCount = questCount + 1
+                    end
+                    steps[#steps + 1] = { quests = subQuests, groupType = "parallel" }
+                    currentWave = collectSuccessors(currentWave, visited)
+                    if #currentWave == 0 then break end
+                else
+                    break  -- genuinely divergent paths; end chain here
+                end
             end
         end
     end
@@ -503,6 +615,72 @@ function GrailProvider:GetChainInfo(questID)
     local hasPrereqs = g.questPrerequisites[questID] and g.questPrerequisites[questID] ~= ""
     local hasSuccessors = reverseMap[questID] and #reverseMap[questID] > 0
     if not hasPrereqs and not hasSuccessors then
+        -- Before giving up, search the reverseMap for a same-title questID that IS
+        -- in the chain graph (has known successors). This handles Retail race/class
+        -- variant quests where Grail only recorded one questID per step (e.g. 28763
+        -- vs 28766 for "Beating Them Back!" — only 28766 appears in questPrerequisites
+        -- as a predecessor of 28774, so 28763 has no graph edges). We search reverseMap
+        -- keys (always numbers, always "quests with successors") for a matching title,
+        -- then build and return the chain for that canonical questID. This avoids any
+        -- timing dependency on QuestCache state.
+        local title = g:QuestName(questID)
+        if title then
+            local canonical = nil
+            for altID in pairs(reverseMap) do
+                if altID ~= questID and g:QuestName(altID) == title then
+                    canonical = altID
+                    break
+                end
+            end
+            if canonical then
+                local roots = findRoots(canonical)
+                if #roots > 0 then
+                    local chains = {}
+                    local seenRoots = {}
+                    for _, root in ipairs(roots) do
+                        if not seenRoots[root] then
+                            seenRoots[root] = true
+                            local steps, questCount = buildChainFromRoot(root)
+                            if #steps >= 2 then
+                                local stepNum = nil
+                                for i, step in ipairs(steps) do
+                                    if step.questID == canonical then
+                                        stepNum = i; break
+                                    elseif step.quests then
+                                        for _, sq in ipairs(step.quests) do
+                                            if sq.questID == canonical then stepNum = i; break end
+                                        end
+                                        if stepNum then break end
+                                    end
+                                end
+                                if stepNum then
+                                    for i, step in ipairs(steps) do
+                                        if step.questID then
+                                            step.status = classifyStatus(step.questID, i, steps)
+                                        elseif step.quests then
+                                            for _, sq in ipairs(step.quests) do
+                                                sq.status = classifyStatus(sq.questID, i, steps)
+                                            end
+                                        end
+                                    end
+                                    chains[#chains + 1] = {
+                                        chainID    = root,
+                                        step       = stepNum,
+                                        length     = #steps,
+                                        questCount = questCount,
+                                        steps      = steps,
+                                        provider   = AQL.Provider.Grail,
+                                    }
+                                end
+                            end
+                        end
+                    end
+                    if #chains > 0 then
+                        return { knownStatus = AQL.ChainStatus.Known, chains = chains }
+                    end
+                end
+            end
+        end
         return { knownStatus = AQL.ChainStatus.NotAChain }
     end
 
