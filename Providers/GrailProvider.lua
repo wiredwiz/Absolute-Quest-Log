@@ -604,6 +604,118 @@ local function buildChainFromRoot(rootQuestID)
     return steps, questCount
 end
 
+-- Returns the 1-based step index of questID in the given steps array, or nil.
+local function findStepForQuestID(questID, steps)
+    for i, step in ipairs(steps) do
+        if step.questID == questID then return i end
+        if step.quests then
+            for _, sq in ipairs(step.quests) do
+                if sq.questID == questID then return i end
+            end
+        end
+    end
+    return nil
+end
+
+-- buildVariantChain: walks all variant roots simultaneously (one wave per step),
+-- majority-votes successors to discard side-branch quests, and returns the
+-- steps array + questCount. Results are cached by canonicalID.
+-- Status annotation is left to GetChainInfo so it stays fresh on every call.
+local function buildVariantChain(canonicalID)
+    if variantChainCache[canonicalID] then
+        local c = variantChainCache[canonicalID]
+        return c.steps, c.questCount
+    end
+
+    local g          = _G["Grail"]
+    local steps      = {}
+    local questCount = 0
+    local visited    = {}
+    local currentWave = {}
+    for _, id in ipairs(variantGroups[canonicalID]) do
+        currentWave[#currentWave + 1] = id
+        visited[id] = true
+    end
+
+    while #currentWave > 0 and #steps < MAX_CHAIN_DEPTH do
+        -- Record current wave as one step.
+        if #currentWave == 1 then
+            local qid = currentWave[1]
+            steps[#steps + 1] = {
+                questID = qid,
+                title   = g:QuestName(qid) or ("Quest " .. qid),
+                status  = AQL.StepStatus.Unknown,
+            }
+            questCount = questCount + 1
+        else
+            local subQuests = {}
+            for _, qid in ipairs(currentWave) do
+                subQuests[#subQuests + 1] = {
+                    questID = qid,
+                    title   = g:QuestName(qid) or ("Quest " .. qid),
+                    status  = AQL.StepStatus.Unknown,
+                }
+                questCount = questCount + 1
+            end
+            steps[#steps + 1] = { quests = subQuests, groupType = "parallel" }
+        end
+
+        -- Collect successors grouped by (name, zone).
+        -- Allow duplicate IDs so that a convergence-point quest appearing in
+        -- multiple wave members counts as multiple votes toward the majority.
+        local candidatesByKey = {}
+        for _, qid in ipairs(currentWave) do
+            for _, succ in ipairs(reverseMap[qid] or {}) do
+                if not visited[succ] then
+                    local name = g:QuestName(succ)
+                    if name then
+                        local zone = nil
+                        local locs = g:QuestLocationsAccept(succ)
+                        if locs and locs[1] and locs[1].mapArea then
+                            zone = g:MapAreaName(locs[1].mapArea)
+                        end
+                        local key = name .. "\0" .. (zone or "")
+                        if not candidatesByKey[key] then
+                            candidatesByKey[key] = { ids = {} }
+                        end
+                        local ids = candidatesByKey[key].ids
+                        ids[#ids + 1] = succ
+                    end
+                end
+            end
+        end
+
+        -- Majority vote: keep only the group with count > waveSize / 2.
+        local waveSize  = #currentWave
+        local nextWave  = nil
+        local bestCount = 0
+        for _, group in pairs(candidatesByKey) do
+            if #group.ids > waveSize / 2 and #group.ids > bestCount then
+                bestCount = #group.ids
+                nextWave  = group.ids
+            end
+        end
+        if not nextWave or #nextWave == 0 then break end
+
+        -- Deduplicate: a convergence-point quest may appear multiple times.
+        local seen    = {}
+        local deduped = {}
+        for _, id in ipairs(nextWave) do
+            if not seen[id] then
+                seen[id] = true
+                deduped[#deduped + 1] = id
+            end
+        end
+        nextWave = deduped
+
+        for _, id in ipairs(nextWave) do visited[id] = true end
+        currentWave = nextWave
+    end
+
+    variantChainCache[canonicalID] = { steps = steps, questCount = questCount }
+    return steps, questCount
+end
+
 function GrailProvider:GetChainInfo(questID)
     local g = _G["Grail"]
     if not g then return { knownStatus = AQL.ChainStatus.Unknown } end
