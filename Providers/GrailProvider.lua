@@ -212,7 +212,7 @@ local reverseMapBuilt = false
 local MAX_CHAIN_DEPTH = 50
 local variantGroups    = {}   -- [canonicalID] = { id1, id2, ... }
 local variantOf        = {}   -- [nonCanonicalID] = canonicalID
-local variantChainCache = {}  -- [canonicalID] = { steps = ..., questCount = ... }
+local variantChainCache = {}  -- [canonicalID] = { steps = ..., questCount = ... }; populated by buildVariantChain
 
 local function buildReverseMap()
     if reverseMapBuilt then return end
@@ -242,7 +242,7 @@ local function buildReverseMap()
     -- quest name AND accept zone. Canonical ID = smallest in each group.
     local rootsByNameZone = {}
     for questID in pairs(reverseMap) do
-        local prereqStr     = g.questPrerequisites[questID]
+        local prereqStr     = g.questPrerequisites[questID] or g.questPrerequisites[tostring(questID)]
         local plainNumerics = parsePlainNumericTokens(prereqStr)
         if #plainNumerics == 0 then
             local name = g:QuestName(questID)
