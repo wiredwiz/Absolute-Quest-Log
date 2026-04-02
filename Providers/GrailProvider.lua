@@ -719,76 +719,73 @@ end
 function GrailProvider:GetChainInfo(questID)
     local g = _G["Grail"]
     if not g then return { knownStatus = AQL.ChainStatus.Unknown } end
-
-    -- Lazy build of the reverse map on first call.
     buildReverseMap()
 
-    -- A quest is in the chain graph if it has prerequisites OR successors.
-    local hasPrereqs = g.questPrerequisites[questID] and g.questPrerequisites[questID] ~= ""
-    local hasSuccessors = reverseMap[questID] and #reverseMap[questID] > 0
-    if not hasPrereqs and not hasSuccessors then
-        -- Before giving up, search the reverseMap for a same-title questID that IS
-        -- in the chain graph (has known successors). This handles Retail race/class
-        -- variant quests where Grail only recorded one questID per step (e.g. 28763
-        -- vs 28766 for "Beating Them Back!" — only 28766 appears in questPrerequisites
-        -- as a predecessor of 28774, so 28763 has no graph edges). We search reverseMap
-        -- keys (always numbers, always "quests with successors") for a matching title,
-        -- then build and return the chain for that canonical questID. This avoids any
-        -- timing dependency on QuestCache state.
-        local title = g:QuestName(questID)
-        if title then
-            local canonical = nil
-            for altID in pairs(reverseMap) do
-                if altID ~= questID and g:QuestName(altID) == title then
-                    canonical = altID
-                    break
+    -- Helper: annotate step statuses in-place using current HistoryCache/QuestCache.
+    local function annotateSteps(steps)
+        for i, step in ipairs(steps) do
+            if step.questID then
+                step.status = classifyStatus(step.questID, i, steps)
+            elseif step.quests then
+                for _, sq in ipairs(step.quests) do
+                    sq.status = classifyStatus(sq.questID, i, steps)
                 end
             end
-            if canonical then
-                local roots = findRoots(canonical)
-                if #roots > 0 then
-                    local chains = {}
-                    local seenRoots = {}
-                    for _, root in ipairs(roots) do
-                        if not seenRoots[root] then
-                            seenRoots[root] = true
-                            local steps, questCount = buildChainFromRoot(root)
-                            if #steps >= 2 then
-                                local stepNum = nil
-                                for i, step in ipairs(steps) do
-                                    if step.questID == canonical then
-                                        stepNum = i; break
-                                    elseif step.quests then
-                                        for _, sq in ipairs(step.quests) do
-                                            if sq.questID == canonical then stepNum = i; break end
-                                        end
-                                        if stepNum then break end
-                                    end
-                                end
-                                if stepNum then
-                                    for i, step in ipairs(steps) do
-                                        if step.questID then
-                                            step.status = classifyStatus(step.questID, i, steps)
-                                        elseif step.quests then
-                                            for _, sq in ipairs(step.quests) do
-                                                sq.status = classifyStatus(sq.questID, i, steps)
-                                            end
-                                        end
-                                    end
-                                    chains[#chains + 1] = {
-                                        chainID    = root,
+        end
+    end
+
+    -- Path 1: variant root (canonical or non-canonical).
+    local canonical = variantOf[questID] or (variantGroups[questID] and questID)
+    if canonical then
+        local steps, questCount = buildVariantChain(canonical)
+        if #steps >= 2 then
+            local stepNum = findStepForQuestID(questID, steps)
+            if stepNum then
+                annotateSteps(steps)
+                return {
+                    knownStatus = AQL.ChainStatus.Known,
+                    chains = {{
+                        chainID    = canonical,
+                        step       = stepNum,
+                        length     = #steps,
+                        questCount = questCount,
+                        steps      = steps,
+                        provider   = AQL.Provider.Grail,
+                    }}
+                }
+            end
+        end
+        return { knownStatus = AQL.ChainStatus.NotAChain }
+    end
+
+    -- Path 2: questID has no graph edges — search for a same-title variant root.
+    local hasPrereqs    = g.questPrerequisites[questID] and g.questPrerequisites[questID] ~= ""
+    local hasSuccessors = reverseMap[questID] and #reverseMap[questID] > 0
+    if not hasPrereqs and not hasSuccessors then
+        local title = g:QuestName(questID)
+        if title then
+            for altID in pairs(reverseMap) do
+                if altID ~= questID and g:QuestName(altID) == title then
+                    local altCanonical = variantOf[altID] or (variantGroups[altID] and altID)
+                    if altCanonical then
+                        local steps, questCount = buildVariantChain(altCanonical)
+                        if #steps >= 2 then
+                            local stepNum = findStepForQuestID(altID, steps)
+                            if stepNum then
+                                annotateSteps(steps)
+                                return {
+                                    knownStatus = AQL.ChainStatus.Known,
+                                    chains = {{
+                                        chainID    = altCanonical,
                                         step       = stepNum,
                                         length     = #steps,
                                         questCount = questCount,
                                         steps      = steps,
                                         provider   = AQL.Provider.Grail,
-                                    }
-                                end
+                                    }}
+                                }
                             end
                         end
-                    end
-                    if #chains > 0 then
-                        return { knownStatus = AQL.ChainStatus.Known, chains = chains }
                     end
                 end
             end
@@ -796,47 +793,28 @@ function GrailProvider:GetChainInfo(questID)
         return { knownStatus = AQL.ChainStatus.NotAChain }
     end
 
-    -- Find all root quests by walking backward.
+    -- Path 3: mid-chain or non-variant — walk back to roots.
     local roots = findRoots(questID)
-    if #roots == 0 then
-        return { knownStatus = AQL.ChainStatus.NotAChain }
-    end
+    if #roots == 0 then return { knownStatus = AQL.ChainStatus.NotAChain } end
 
-    -- Build a chain from each root. Only keep chains that contain questID.
-    local chains = {}
+    local chains    = {}
     local seenRoots = {}
     for _, root in ipairs(roots) do
         if not seenRoots[root] then
             seenRoots[root] = true
-            local steps, questCount = buildChainFromRoot(root)
+            local rootCanonical = variantOf[root] or (variantGroups[root] and root)
+            local steps, questCount
+            if rootCanonical then
+                steps, questCount = buildVariantChain(rootCanonical)
+            else
+                steps, questCount = buildChainFromRoot(root)
+            end
             if #steps >= 2 then
-                -- Find the step index for questID.
-                local stepNum = nil
-                for i, step in ipairs(steps) do
-                    if step.questID == questID then
-                        stepNum = i; break
-                    elseif step.quests then
-                        for _, sq in ipairs(step.quests) do
-                            if sq.questID == questID then stepNum = i; break end
-                        end
-                        if stepNum then break end
-                    end
-                end
-
+                local stepNum = findStepForQuestID(questID, steps)
                 if stepNum then
-                    -- Annotate step statuses with full steps array context.
-                    for i, step in ipairs(steps) do
-                        if step.questID then
-                            step.status = classifyStatus(step.questID, i, steps)
-                        elseif step.quests then
-                            for _, sq in ipairs(step.quests) do
-                                sq.status = classifyStatus(sq.questID, i, steps)
-                            end
-                        end
-                    end
-
+                    annotateSteps(steps)
                     chains[#chains + 1] = {
-                        chainID    = root,
+                        chainID    = rootCanonical or root,
                         step       = stepNum,
                         length     = #steps,
                         questCount = questCount,
@@ -848,14 +826,8 @@ function GrailProvider:GetChainInfo(questID)
         end
     end
 
-    if #chains == 0 then
-        return { knownStatus = AQL.ChainStatus.NotAChain }
-    end
-
-    return {
-        knownStatus = AQL.ChainStatus.Known,
-        chains      = chains,
-    }
+    if #chains == 0 then return { knownStatus = AQL.ChainStatus.NotAChain } end
+    return { knownStatus = AQL.ChainStatus.Known, chains = chains }
 end
 
 AQL.GrailProvider = GrailProvider
