@@ -166,6 +166,35 @@ function AQL:IsQuestFinished(questID)
 end
 
 ------------------------------------------------------------------------
+-- Quest Alias
+------------------------------------------------------------------------
+
+-- GetQuestAliasKey(questID) → string or nil
+-- Returns a stable fingerprint key for questID based on title, zone, and
+-- sorted objective name/count pairs. Two questIDs that are the same logical
+-- quest (e.g. Retail variant questIDs assigned per race/class character type)
+-- return identical keys.
+-- On non-Retail versions: returns tostring(questID) — no fingerprint overhead.
+-- On Retail: returns nil when questID is not in the active QuestCache.
+--   Callers that need a fallback should use: AQL:GetQuestAliasKey(id) or tostring(id)
+function AQL:GetQuestAliasKey(questID)
+    if not WowQuestAPI.IS_RETAIL then
+        return tostring(questID)
+    end
+    local info = self.QuestCache and self.QuestCache:Get(questID)
+    if not info then return nil end
+    return self.QuestCache:_buildAliasKey(info)
+end
+
+-- AreQuestsAliases(id1, id2) → bool
+-- Returns true if id1 and id2 are the same logical quest from a player perspective
+-- (identical fingerprint key). Returns false when either questID is not in cache.
+function AQL:AreQuestsAliases(id1, id2)
+    local k1 = self:GetQuestAliasKey(id1)
+    return k1 ~= nil and k1 == self:GetQuestAliasKey(id2)
+end
+
+------------------------------------------------------------------------
 -- Quest History
 ------------------------------------------------------------------------
 
@@ -650,6 +679,17 @@ function AQL:IsQuestLogShown()
     return WowQuestAPI.IsQuestLogShown()
 end
 
+-- IsQuestDetailShown() → bool
+-- Returns true if QuestModelScene is visible (rendering an NPC portrait).
+-- On Retail: delegates to WowQuestAPI.IsQuestDetailPanelShown(). NOTE: due to Retail's
+-- split-pane quest log layout, QuestModelScene may remain visible even when the quest list
+-- is shown — this does NOT reliably distinguish "detail active" from "list showing".
+-- Use hook-based tracking (see SQ RowFactory) for toggle-close detection.
+-- On TBC/Classic/MoP: always returns true (list and details always shown together).
+function AQL:IsQuestDetailShown()
+    return WowQuestAPI.IsQuestDetailPanelShown()
+end
+
 -- GetQuestLogSelection() → logIndex
 -- Returns the currently selected quest log entry index (0 if none selected).
 -- @deprecated Use GetSelectedQuestLogEntryId() instead. Returns a raw logIndex
@@ -799,20 +839,42 @@ end
 
 -- OpenQuestLogByIndex(logIndex)
 -- Shows the quest log frame and navigates to logIndex.
+-- On Retail: QuestMapFrame_ShowQuestDetails (called via ShowQuestDetails below) closes
+-- WorldMapFrame when the log is already open in quest list mode (QuestModelScene not
+-- visible — the "after Back" state). Detect this via QuestModelScene:IsVisible() and
+-- close first; ShowQuestLog reopens in the same Lua frame (imperceptible, same-frame
+-- Hide+Show), making ShowQuestDetails safe on the fresh-open path.
 function AQL:OpenQuestLogByIndex(logIndex)
     if self.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] OpenQuestLogByIndex: showing quest log, navigating to logIndex=" .. tostring(logIndex) .. self.RESET)
     end
+    -- On Retail: if already open in quest list mode, close first so ShowQuestLog can
+    -- reopen in a fresh-open state where ShowQuestDetails is safe.
+    if WowQuestAPI.IS_RETAIL and WowQuestAPI.IsQuestLogShown()
+       and not (QuestModelScene and QuestModelScene:IsVisible()) then
+        WowQuestAPI.HideQuestLog()
+    end
     WowQuestAPI.ShowQuestLog()
+    -- QuestMapFrame:IsVisible() confirms the quest log panel is active and
+    -- QuestModelScene's geometry is resolvable — safe to call SetSelectedQuest and
+    -- ShowQuestDetails.
+    if WowQuestAPI.IS_RETAIL and not (QuestMapFrame and QuestMapFrame:IsVisible()) then
+        return
+    end
     self:SelectAndShowQuestLogEntryByIndex(logIndex)
+    local info = WowQuestAPI.GetQuestLogInfo(logIndex)
+    if info and info.questID then
+        WowQuestAPI.ShowQuestDetails(info.questID)
+    end
 end
 
 -- ToggleQuestLogByIndex(logIndex)
 -- If the quest log is shown and logIndex is the current selection, hides
 -- the quest log. Otherwise opens the quest log and navigates to logIndex.
--- On the hide path: emits a verbose debug message.
--- On the open path: delegates to OpenQuestLogByIndex (which emits its own
--- verbose message — no separate message from ToggleQuestLogByIndex).
+-- On Retail: the toggle-close path requires C_QuestLog.GetSelectedQuest() to
+-- return questID, which only happens when WowQuestAPI.ShowQuestDetails successfully
+-- establishes the visual selection. Until ShowQuestDetails works, toggle-close
+-- is a graceful no-op (the log always opens; never incorrectly closes).
 function AQL:ToggleQuestLogByIndex(logIndex)
     if WowQuestAPI.IsQuestLogShown() and WowQuestAPI.GetQuestLogSelection() == logIndex then
         if self.debug == "verbose" then

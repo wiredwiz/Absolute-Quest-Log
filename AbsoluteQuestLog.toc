@@ -2,7 +2,7 @@
 ## Title: Lib: AbsoluteQuestLog
 ## Notes: A rich quest data library for WoW Burning Crusade Anniversary.
 ## Author: Thad Ryker
-## Version: 3.2.6
+## Version: 3.3.0
 ## X-Category: Library
 ## X-Embeds: LibStub, CallbackHandler-1.0
 ## IconTexture: Interface\AddOns\AbsoluteQuestLog\Logo.png

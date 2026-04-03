@@ -146,15 +146,19 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
 
     -- Objectives.
     -- C_QuestLog.GetQuestObjectives returns per-objective: text, type, finished,
-    -- numFulfilled, numRequired. `name` is parsed from text by stripping the
-    -- count suffix (e.g. "Tainted Ooze killed: 4/10" → name = "Tainted Ooze killed").
+    -- numFulfilled, numRequired. `name` is parsed from text by stripping the embedded count.
+    -- Two formats exist across WoW versions:
+    --   Count-last  (TBC/Classic/MoP): "Tainted Ooze killed: 4/10"  → "Tainted Ooze killed"
+    --   Count-first (Retail):          "4/10 Tainted Ooze killed"    → "Tainted Ooze killed"
     -- For event/log types with no count, name equals the full text.
     local objectives = {}
     local rawObjs = WowQuestAPI.GetQuestObjectives(questID)
     if rawObjs then
         for idx, obj in ipairs(rawObjs) do
             local text = obj.text or ""
-            local name = text:match("^(.-):%s*%d+/%d+%s*$") or text
+            local name = text:match("^(.-):%s*%d+/%d+%s*$")
+                      or text:match("^%d+/%d+%s+(.+)$")
+                      or text
             objectives[idx] = {
                 index        = idx,
                 text         = text,
@@ -225,4 +229,17 @@ end
 
 function QuestCache:GetAll()
     return self.data
+end
+
+function QuestCache:_buildAliasKey(info)
+    -- Builds a stable fingerprint for a quest from its observable player identity:
+    -- title, zone, and sorted objective name/count pairs. Retail variant questIDs
+    -- (different numeric IDs for the same logical quest across race/class types)
+    -- produce identical keys. Internal — not part of the public API.
+    local parts = {}
+    for _, obj in ipairs(info.objectives or {}) do
+        table.insert(parts, (obj.name or obj.text or "") .. "/" .. tostring(obj.numRequired or 1))
+    end
+    table.sort(parts)
+    return (info.title or "") .. ":" .. (info.zone or "") .. ":" .. table.concat(parts, "|")
 end

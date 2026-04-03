@@ -540,8 +540,27 @@ end
 
 -- ShowQuestLog()
 -- Opens the quest log (Retail: WorldMapFrame; Classic/TBC/MoP: QuestLogFrame).
+-- On Retail: WorldMapFrame:Show() alone opens the frame in MAP mode — QuestMapFrame
+-- (the quest log panel) is not activated and QuestModelScene never receives valid
+-- geometry, causing tracker-click crashes on subsequent use.
+-- QuestMapFrame_OpenToAllQuests() calls an internal toggle and hides the window when
+-- WorldMapFrame is already visible — do not use it here.
+-- ToggleQuestLog() is what the TOGGLEQUESTLOG keybind (L) calls; it opens WorldMapFrame
+-- in quest log panel mode, properly activating QuestMapFrame and initializing
+-- QuestModelScene. Only call when not already visible so it opens rather than closes.
+-- Falls back to WorldMapFrame:Show() if ToggleQuestLog does not exist on this build.
+-- TODO: verify ToggleQuestLog exists on Interface 120001
 function WowQuestAPI.ShowQuestLog()
-    if IS_RETAIL then WorldMapFrame:Show() else ShowUIPanel(QuestLogFrame) end
+    if IS_RETAIL then
+        if WorldMapFrame:IsVisible() then return end
+        if ToggleQuestLog then
+            ToggleQuestLog()
+        else
+            WorldMapFrame:Show()
+        end
+        return
+    end
+    ShowUIPanel(QuestLogFrame)
 end
 
 -- HideQuestLog()
@@ -550,11 +569,50 @@ function WowQuestAPI.HideQuestLog()
     if IS_RETAIL then WorldMapFrame:Hide() else HideUIPanel(QuestLogFrame) end
 end
 
+-- ShowQuestDetails(questID)
+-- Navigates to and displays the detail panel for questID in the quest log.
+-- On Retail, C_QuestLog.SetSelectedQuest() sets the C-level selection but does NOT
+-- navigate WorldMapFrame to the quest's detail panel. QuestMapFrame_ShowQuestDetails
+-- does that, but it internally calls QuestFrame_ShowQuestPortrait → QuestModelScene:Show().
+-- QuestModelScene:OnShow crashes ("Cannot perform measurement in QuestFrameModelScene")
+-- when QuestMapFrame is not the active panel — QuestModelScene's anchors can't be
+-- resolved and GetRight() returns nil inside the script.
+-- Guard: QuestMapFrame:IsVisible() — confirms the quest log panel is active and
+-- QuestModelScene's geometry is resolvable. This is the correct readiness check.
+-- QuestModelScene:GetRight() is NOT reliable: it returns nil even after ToggleQuestLog
+-- activates QuestMapFrame (scene not yet shown), incorrectly blocking navigation on
+-- the first SQ click each session.
+-- pcall: belt-and-suspenders for any remaining crash path.
+-- On TBC/Classic/MoP: no-op — QuestLog_SetSelection + QuestLog_Update already fully
+--   refreshes the standalone QuestLogFrame; no separate detail-panel call is needed.
+function WowQuestAPI.ShowQuestDetails(questID)
+    if not IS_RETAIL then return end
+    if not QuestMapFrame_ShowQuestDetails then return end
+    if not QuestMapFrame or not QuestMapFrame:IsVisible() then return end
+    pcall(QuestMapFrame_ShowQuestDetails, questID)
+end
+
 -- IsQuestLogShown() → bool
 -- Returns true if the quest log (or WorldMapFrame on Retail) is currently visible.
 function WowQuestAPI.IsQuestLogShown()
     if IS_RETAIL then return WorldMapFrame:IsVisible() end
     return QuestLogFrame:IsVisible()
+end
+
+-- IsQuestDetailPanelShown() → bool
+-- Returns true if QuestModelScene is currently visible (rendering an NPC portrait).
+-- On Retail: checks QuestModelScene:IsVisible(). NOTE: in Retail's split-pane quest log
+-- layout, QuestModelScene may remain visible even when the quest list is shown (it is not
+-- hidden when the user presses Back). This function therefore does NOT reliably distinguish
+-- "detail panel is active" from "quest list is showing" on all Retail layouts. Do not use
+-- this to gate toggle-close logic; use hook-based tracking instead (see SQ RowFactory).
+-- On TBC/Classic/MoP: always returns true — the standalone QuestLogFrame always shows
+-- details alongside the list; there is no separate detail panel to hide.
+function WowQuestAPI.IsQuestDetailPanelShown()
+    if IS_RETAIL then
+        return QuestModelScene and QuestModelScene:IsVisible() and true or false
+    end
+    return true
 end
 
 -- GetQuestDifficultyColor(level) → {r, g, b}

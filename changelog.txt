@@ -1,6 +1,121 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 3.3.0 (April 2026)
+============================
+- Feature: AQL:GetQuestAliasKey(questID) — returns a stable fingerprint key for a
+  quest (title + zone + sorted objective names/counts). On Retail, two questIDs that
+  represent the same logical quest (variant questIDs assigned per race/class character
+  type) return identical keys. On non-Retail, returns tostring(questID) with no overhead.
+  Returns nil on Retail when questID is not in the active cache.
+- Feature: AQL:AreQuestsAliases(id1, id2) — convenience wrapper; returns true when
+  both questIDs share the same alias key (both in cache and fingerprints match).
+- New internal: QuestCache:_buildAliasKey(info) — private fingerprint builder used by
+  GetQuestAliasKey.
+
+Version 3.2.19 (April 2026)
+============================
+- Bug fix: objective name extraction in QuestCache now handles Retail's count-first format.
+  "^(.-):%s*%d+/%d+%s*$" only matched count-last ("Description: X/Y"). Retail returns
+  count-first ("X/Y Description"), so name fell back to the full text. Any consumer using
+  objective.name (announcements, etc.) then prepended its own X/Y, doubling the count.
+  Fix: added "^%d+/%d+%s+(.+)$" fallback pattern before the verbatim fallback.
+
+Version 3.2.18 (April 2026)
+============================
+- Bug fix: AQL:OpenQuestLogByIndex now closes WorldMapFrame before reopening when the log is
+  already open in quest list mode (Retail only). QuestMapFrame_ShowQuestDetails from list mode
+  (QuestModelScene not visible — after pressing Back) closes WorldMapFrame as a side effect.
+  Fix: detect list mode via QuestModelScene:IsVisible(); if open in list mode, call
+  WowQuestAPI.HideQuestLog() before ShowQuestLog(). Same-frame Hide+Show = no visible flash.
+
+Version 3.2.17 (April 2026)
+============================
+- Feature: WowQuestAPI.IsQuestDetailPanelShown() / AQL:IsQuestDetailShown() added.
+  Checks QuestModelScene:IsVisible() on Retail. NOTE: in Retail's split-pane layout,
+  QuestModelScene stays visible even when the quest list is shown — this function does
+  not reliably distinguish detail-panel-active from quest-list-showing. Do not use for
+  toggle-close detection; use hook-based tracking (see SQ RowFactory 2.17.18).
+  On TBC/Classic/MoP always returns true.
+
+Version 3.2.16 (April 2026)
+============================
+- Bug fix: QuestModelScene:GetRight() guard replaced with QuestMapFrame:IsVisible()
+  in ShowQuestDetails and OpenQuestLogByIndex. GetRight() returns nil even after
+  ToggleQuestLog activates QuestMapFrame (scene not yet shown), blocking navigation
+  on every first SQ click. QuestMapFrame:IsVisible() is the correct readiness signal:
+  quest log panel active = QuestModelScene anchors resolvable = safe to call ShowQuestDetails.
+
+Version 3.2.15 (April 2026)
+============================
+- Bug fix: ShowQuestLog on Retail now calls ToggleQuestLog() (TOGGLEQUESTLOG keybind
+  function) when WorldMapFrame is not visible. WorldMapFrame:Show() opens in map mode
+  (QuestModelScene uninitialized). QuestMapFrame_OpenToAllQuests() calls an internal
+  toggle that hides WorldMapFrame when already visible (window never appears).
+  ToggleQuestLog() opens in quest log panel mode, initializing QuestModelScene.
+  Falls back to WorldMapFrame:Show() if absent.
+
+Version 3.2.14 (April 2026)
+============================
+- Bug fix: ShowQuestLog on Retail now calls WorldMapFrame:Show() AND
+  QuestMapFrame_OpenToAllQuests(). Show() alone opens in map mode (QuestModelScene
+  uninitialized, tracker crashes). OpenToAllQuests() alone navigates the internal panel
+  but the window never appears on screen. Both are required: Show() for visibility,
+  OpenToAllQuests for quest log panel activation and QuestModelScene initialization.
+
+Version 3.2.13 (April 2026)
+============================
+- Bug fix: ShowQuestLog on Retail now calls QuestMapFrame_OpenToAllQuests() instead of
+  WorldMapFrame:Show(). WorldMapFrame:Show() opens in map mode without activating
+  QuestMapFrame, so QuestModelScene children never receive valid geometry. Tracker clicks
+  then crash on QuestModelScene:GetRight() == nil. QuestMapFrame_OpenToAllQuests()
+  navigates to quest log panel mode, properly initializing QuestModelScene.
+  Falls back to WorldMapFrame:Show() if absent.
+
+Version 3.2.12 (April 2026)
+============================
+- Bug fix: ShowQuestDetails guard was checking QuestFrameModelScene (NPC dialog model
+  scene, a different frame) instead of QuestModelScene (WorldMapFrame detail panel model
+  scene — the one that crashes). QuestFrameModelScene may be initialized when
+  QuestModelScene is not, so the wrong guard passed and allowed the crash through.
+- Bug fix: OpenQuestLogByIndex now gates SelectAndShowQuestLogEntryByIndex on Retail
+  behind QuestModelScene readiness. SetSelectedQuest may trigger WorldMapFrame auto-
+  navigation to the detail panel, same crash path as ShowQuestDetails directly.
+
+Version 3.2.11 (April 2026)
+============================
+- Bug fix: QuestFrameModelScene guard added to WowQuestAPI.ShowQuestDetails. Before
+  calling QuestMapFrame_ShowQuestDetails, checks that QuestFrameModelScene exists and
+  GetRight() is non-nil. The model scene is lazy-initialized (requires NPC quest dialog
+  to have been opened once); calling without it initialized triggers a Blizzard bug that
+  breaks the quest tracker for the rest of the session. pcall restored around the call.
+
+Version 3.2.10 (April 2026)
+============================
+- Diagnostic: pcall removed from ShowQuestDetails so errors surface in WoW error
+  frame. Temporary — restore pcall once the correct Retail API is identified.
+
+Version 3.2.9 (April 2026)
+===========================
+- Reverted 3.2.8 _openedQuestID tracking (wrong design — stale if log opened
+  from other sources). Toggle correctly uses observable UI state only.
+  Documented that toggle-close on Retail depends on ShowQuestDetails working.
+
+Version 3.2.8 (April 2026)
+- Bug fix: ToggleQuestLogByIndex broken on Retail — GetQuestLogSelection() returns 0
+  unconditionally, so the == logIndex check always failed (log never closed).
+  Fixed via _openedQuestID tracking: OpenQuestLogByIndex records the questID,
+  HideQuestLog clears it, ToggleQuestLogByIndex compares against it on Retail.
+- Feature: AQL:GetCurrentlyOpenQuestId() — returns tracked questID; nil when closed.
+
+Version 3.2.7 (April 2026)
+===========================
+- Feature: WowQuestAPI.ShowQuestDetails(questID) added. On Retail, navigates
+  WorldMapFrame to the quest's detail panel via QuestMapFrame_ShowQuestDetails
+  (nil-guarded, pcall-guarded). No-op on TBC/Classic/MoP.
+- Feature: AQL:OpenQuestLogByIndex now calls ShowQuestDetails after selection,
+  giving all OpenQuestLog* callers proper detail-panel navigation on Retail.
+
 Version 3.2.6 (April 2026)
 ===========================
 - Feature: `AQL:GetChainInfo(questID)` now falls through to the Chain provider when
