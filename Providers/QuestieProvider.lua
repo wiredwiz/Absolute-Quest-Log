@@ -23,6 +23,7 @@ QuestieProvider.capabilities = {
     AQL.Capability.Chain,
     AQL.Capability.QuestInfo,
     AQL.Capability.Requirements,
+    AQL.Capability.Details,
 }
 
 -- Returns the live QuestieDB module reference, or nil if Questie is not loaded
@@ -305,6 +306,72 @@ function QuestieProvider:GetQuestRequirements(questID)
         exclusiveTo          = quest.exclusiveTo,
         nextQuestInChain     = nextInChain,
         breadcrumbForQuestId = quest.breadcrumbForQuestId,
+    }
+end
+
+-- Helper: resolves the first NPC starter/finisher name and zone from a Questie NPC ID array.
+-- Returns name, zone (both may be nil if NPC not in DB or zone not resolvable).
+local function resolveNPCInfo(db, npcIds)
+    if not npcIds or #npcIds == 0 then return nil, nil end
+    local npcId = npcIds[1]
+    if not npcId or npcId == 0 then return nil, nil end
+    local ok, npc = pcall(db.GetNPC, db, npcId)
+    if not ok or not npc then return nil, nil end
+    local name = npc.name
+    local zone
+    if npc.zoneID and npc.zoneID > 0 then
+        zone = WowQuestAPI.GetAreaInfo(npc.zoneID)
+    end
+    return name, zone
+end
+
+function QuestieProvider:GetQuestDetails(questID)
+    local db = getDB()
+    if not db then return nil end
+    local ok, quest = pcall(db.GetQuest, db, questID)
+    if not ok or not quest then return nil end
+
+    -- Description: objectivesText is an array of strings; join with newlines.
+    local description
+    if quest.objectivesText then
+        if type(quest.objectivesText) == "table" then
+            description = table.concat(quest.objectivesText, "\n")
+        elseif type(quest.objectivesText) == "string" then
+            description = quest.objectivesText
+        end
+        if description == "" then description = nil end
+    end
+
+    -- Starter NPC (startedBy[1] is the NPC ID array).
+    local starterNPC, starterZone
+    if quest.startedBy and quest.startedBy[1] then
+        starterNPC, starterZone = resolveNPCInfo(db, quest.startedBy[1])
+    end
+
+    -- Finisher NPC.
+    local finisherNPC, finisherZone
+    if quest.finishedBy and quest.finishedBy[1] then
+        finisherNPC, finisherZone = resolveNPCInfo(db, quest.finishedBy[1])
+    end
+
+    -- Dungeon / raid flags from questTagId.
+    local isDungeon = quest.questTagId == TAG_DUNGEON or nil
+    local isRaid    = quest.questTagId == TAG_RAID    or nil
+
+    -- Return nil when nothing useful to contribute.
+    if not description and not starterNPC and not finisherNPC
+       and not isDungeon and not isRaid then
+        return nil
+    end
+
+    return {
+        description  = description,
+        starterNPC   = starterNPC,
+        starterZone  = starterZone,
+        finisherNPC  = finisherNPC,
+        finisherZone = finisherZone,
+        isDungeon    = isDungeon,
+        isRaid       = isRaid,
     }
 end
 

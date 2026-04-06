@@ -76,6 +76,7 @@ local CAPABILITY_LABEL = {
     [AQL.Capability.Chain]        = "quest chain",
     [AQL.Capability.QuestInfo]    = "quest info",
     [AQL.Capability.Requirements] = "requirements",
+    [AQL.Capability.Details]      = "quest details",
 }
 
 -- Priority-ordered provider candidates per capability.
@@ -90,6 +91,7 @@ local function getProviderPriority()
             [AQL.Capability.Chain]        = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.BtWQuestsProvider, AQL.GrailProvider },
             [AQL.Capability.QuestInfo]    = { AQL.QuestieProvider, AQL.QuestWeaverProvider, AQL.BtWQuestsProvider, AQL.GrailProvider },
             [AQL.Capability.Requirements] = { AQL.QuestieProvider, AQL.BtWQuestsProvider, AQL.GrailProvider },
+            [AQL.Capability.Details]      = { AQL.QuestieProvider, AQL.GrailProvider },
         }
     end
     return _PROVIDER_PRIORITY

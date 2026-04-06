@@ -219,6 +219,19 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
         if ok3 then questFaction = result3 end
     end
 
+    -- Details capability — description, NPC info, dungeon/raid flags.
+    local questDetails
+    local detailsProvider = AQL.providers and AQL.providers[AQL.Capability.Details]
+    if detailsProvider then
+        local ok4, result4 = pcall(detailsProvider.GetQuestDetails, detailsProvider, questID)
+        if ok4 then questDetails = result4 end
+    end
+
+    -- isGroup: derived from questType; true when type is elite, dungeon, or raid.
+    local isGroup = (questType == AQL.QuestType.Elite
+                  or questType == AQL.QuestType.Dungeon
+                  or questType == AQL.QuestType.Raid) or nil
+
     if AQL.debug == "verbose" then
         local objCount = 0
         for _ in ipairs(objectives) do objCount = objCount + 1 end
@@ -235,6 +248,14 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
         zone           = zone,
         type           = questType,
         faction        = questFaction,
+        isGroup        = isGroup,
+        description    = questDetails and questDetails.description  or nil,
+        starterNPC     = questDetails and questDetails.starterNPC    or nil,
+        starterZone    = questDetails and questDetails.starterZone   or nil,
+        finisherNPC    = questDetails and questDetails.finisherNPC   or nil,
+        finisherZone   = questDetails and questDetails.finisherZone  or nil,
+        isDungeon      = questDetails and questDetails.isDungeon     or nil,
+        isRaid         = questDetails and questDetails.isRaid        or nil,
         isComplete     = isComplete,
         isFailed       = isFailed,
         failReason     = failReason,

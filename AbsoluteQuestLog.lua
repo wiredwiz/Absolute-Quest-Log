@@ -85,6 +85,7 @@ AQL.Capability = {
     Chain        = "Chain",        -- GetChainInfo
     QuestInfo    = "QuestInfo",    -- GetQuestBasicInfo, GetQuestType, GetQuestFaction
     Requirements = "Requirements", -- GetQuestRequirements
+    Details      = "Details",      -- GetQuestDetails
 }
 
 -- Active provider per capability. Set by Core/EventEngine.lua at PLAYER_LOGIN.
@@ -95,6 +96,7 @@ AQL.providers = AQL.providers or {
     [AQL.Capability.Chain]        = nil,
     [AQL.Capability.QuestInfo]    = nil,
     [AQL.Capability.Requirements] = nil,
+    [AQL.Capability.Details]      = nil,
 }
 
 AQL.Event = {
@@ -442,6 +444,26 @@ function AQL:GetQuestInfo(questID)
                     result.chainInfo = result.chainInfo or ci
                 end
             end
+            -- Details capability for non-cached quests.
+            local detailsProvider = self.providers and self.providers[AQL.Capability.Details]
+            if detailsProvider then
+                local ok, details = pcall(detailsProvider.GetQuestDetails, detailsProvider, questID)
+                if ok and details then
+                    result.description  = result.description  or details.description
+                    result.starterNPC   = result.starterNPC   or details.starterNPC
+                    result.starterZone  = result.starterZone  or details.starterZone
+                    result.finisherNPC  = result.finisherNPC  or details.finisherNPC
+                    result.finisherZone = result.finisherZone or details.finisherZone
+                    result.isDungeon    = result.isDungeon    or details.isDungeon
+                    result.isRaid       = result.isRaid       or details.isRaid
+                end
+            end
+            -- Derive isGroup from type if type was populated.
+            if result.type then
+                result.isGroup = (result.type == AQL.QuestType.Elite
+                               or result.type == AQL.QuestType.Dungeon
+                               or result.type == AQL.QuestType.Raid) or nil
+            end
         end
         return result
     end
@@ -464,6 +486,24 @@ function AQL:GetQuestInfo(questID)
 
     if not basicInfo and chainInfo.knownStatus == AQL.ChainStatus.Unknown then return nil end
 
+    -- Details capability for Tier 3 (non-log quests).
+    local questDetails
+    local detailsProvider = self.providers and self.providers[AQL.Capability.Details]
+    if detailsProvider then
+        local ok, details = pcall(detailsProvider.GetQuestDetails, detailsProvider, questID)
+        if ok then questDetails = details end
+    end
+
+    -- questType and isGroup for Tier 3.
+    local questType
+    if infoProvider then
+        local ok, t = pcall(infoProvider.GetQuestType, infoProvider, questID)
+        if ok and t then questType = t end
+    end
+    local isGroup = questType and ((questType == AQL.QuestType.Elite
+                                 or questType == AQL.QuestType.Dungeon
+                                 or questType == AQL.QuestType.Raid) or nil)
+
     return {
         questID       = questID,
         title         = basicInfo and basicInfo.title         or nil,
@@ -471,6 +511,15 @@ function AQL:GetQuestInfo(questID)
         requiredLevel = basicInfo and basicInfo.requiredLevel or nil,
         zone          = basicInfo and basicInfo.zone          or nil,
         chainInfo     = chainInfo,
+        type          = questType,
+        isGroup       = isGroup,
+        description   = questDetails and questDetails.description  or nil,
+        starterNPC    = questDetails and questDetails.starterNPC    or nil,
+        starterZone   = questDetails and questDetails.starterZone   or nil,
+        finisherNPC   = questDetails and questDetails.finisherNPC   or nil,
+        finisherZone  = questDetails and questDetails.finisherZone  or nil,
+        isDungeon     = questDetails and questDetails.isDungeon     or nil,
+        isRaid        = questDetails and questDetails.isRaid        or nil,
     }
 end
 

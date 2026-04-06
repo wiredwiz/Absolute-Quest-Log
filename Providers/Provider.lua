@@ -60,5 +60,21 @@
 --   Provider:GetQuestBasicInfo(questID)   [optional — checked with `if provider.GetQuestBasicInfo then`]
 --     Returns { title, questLevel, requiredLevel, zone } or nil.
 --
+--   Provider:GetQuestDetails(questID)   [optional — checked with `if provider.GetQuestDetails then`]
+--     Returns a partial table of rich tooltip fields. Absent fields are not
+--     present in the returned table (not nil — simply missing). Returns nil
+--     entirely when the provider has no data for this quest.
+--
+--     Fields and provider availability:
+--       description  (string) — quest body/objectives text.           Questie only.
+--       starterNPC   (string) — quest-giver NPC name.                 Questie only (Grail: zone only).
+--       starterZone  (string) — zone of quest-giver.                  Questie + Grail.
+--       finisherNPC  (string) — turn-in NPC name.                     Questie only (Grail: zone only).
+--       finisherZone (string) — zone of turn-in NPC.                  Questie + Grail.
+--       isDungeon    (true)   — present and true for dungeon quests.   Questie + Grail.
+--       isRaid       (true)   — present and true for raid quests.      Questie + Grail.
+--
+--     Providers must omit fields they cannot supply (do not set to nil/false).
+--
 -- All provider calls in EventEngine and QuestCache are wrapped in pcall.
 -- A provider that errors does not crash the library.

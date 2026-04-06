@@ -19,6 +19,7 @@ GrailProvider.capabilities = {
     AQL.Capability.Chain,
     AQL.Capability.QuestInfo,
     AQL.Capability.Requirements,
+    AQL.Capability.Details,
 }
 
 ------------------------------------------------------------------------
@@ -198,6 +199,45 @@ function GrailProvider:GetQuestRequirements(questID)
         nextQuestInChain     = nil,  -- not derivable from prerequisites alone
         requiredRaces        = nil,  -- Grail uses letter codes; bitmask mapping deferred
         requiredClasses      = nil,  -- same
+    }
+end
+
+------------------------------------------------------------------------
+-- Details capability
+------------------------------------------------------------------------
+
+-- Helper: resolves zone name from the first entry in a Grail location array.
+local function grailLocationZone(g, locs)
+    if not locs or not locs[1] then return nil end
+    local mapArea = locs[1].mapArea
+    if not mapArea then return nil end
+    return g:MapAreaName(mapArea)
+end
+
+function GrailProvider:GetQuestDetails(questID)
+    local g = _G["Grail"]
+    if not g then return nil end
+
+    local starterZone  = grailLocationZone(g, g:QuestLocationsAccept(questID))
+    local finisherZone
+    if g.QuestLocationsTurnin then
+        finisherZone = grailLocationZone(g, g:QuestLocationsTurnin(questID))
+    end
+
+    -- isDungeon / isRaid reuse the same Grail API as GetQuestType.
+    local isDungeon = g:IsDungeon(questID) or nil
+    local isRaid    = g:IsRaid(questID)    or nil
+
+    if not starterZone and not finisherZone and not isDungeon and not isRaid then
+        return nil
+    end
+
+    return {
+        starterZone  = starterZone,
+        finisherZone = finisherZone,
+        isDungeon    = isDungeon,
+        isRaid       = isRaid,
+        -- starterNPC / finisherNPC omitted: Grail location records don't expose NPC names.
     }
 end
 

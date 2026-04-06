@@ -37,4 +37,8 @@ function NullProvider:GetQuestRequirements(questID)
     return nil
 end
 
+function NullProvider:GetQuestDetails(questID)
+    return nil
+end
+
 AQL.NullProvider = NullProvider
