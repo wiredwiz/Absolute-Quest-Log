@@ -12,8 +12,10 @@
 -- server round-trip for bag operations, which can produce two QUEST_LOG_UPDATE
 -- events separated by up to ~400 ms depending on server latency.
 --
--- Re-entrancy: if a rebuild triggers a QUEST_LOG_UPDATE, the new call schedules
--- a deferred rebuild rather than being silently dropped.
+-- Re-entrancy: some Retail C_QuestLog calls inside _buildEntry fire QUEST_LOG_UPDATE
+-- as a next-frame side-effect. A 100 ms cooldown blocks those noise events. A one-shot
+-- follow-up rebuild at t+150 ms catches server-sent state changes (e.g. isComplete=true)
+-- that arrived during the cooldown window.
 
 local AQL = LibStub("AbsoluteQuestLog-1.0", true)
 if not AQL then return end
@@ -31,11 +33,11 @@ EventEngine.pendingTurnIn       = {}  -- questIDs currently awaiting QUEST_REMOV
 EventEngine.pendingAcceptCount  = 0   -- number of QUEST_ACCEPTED events fired and awaiting cache diff
 EventEngine.debounceGeneration  = 0   -- incremented on every QUEST_LOG_UPDATE; timer fires only when still current
 -- On Retail, some WoW API calls inside QuestCache._buildEntry fire QUEST_LOG_UPDATE
--- synchronously, which re-enters handleQuestLogUpdate mid-rebuild and schedules another
--- rebuild, creating an infinite loop (Retail only). After each rebuild, the cooldown
--- is set on Retail to suppress noise events for 100 ms. Real player-action events
--- (QUEST_ACCEPTED, QUEST_REMOVED) bypass the gate via bypassCooldown=true. On
--- Classic/TBC/MoP this value stays 0 and the check is always false — no change.
+-- as a next-frame side-effect, flooding the debounce and creating an infinite loop.
+-- After each rebuild, rebuildCooldownUntil blocks those noise events for 100 ms.
+-- Real player-action events (QUEST_ACCEPTED, QUEST_REMOVED) bypass via bypassCooldown=true.
+-- A one-shot follow-up rebuild fires at t+150 ms (after the cooldown expires) to catch
+-- server-sent state changes (e.g. isComplete=true) that arrived during the window.
 EventEngine.rebuildCooldownUntil = 0
 
 -- Hidden event frame.
@@ -462,9 +464,13 @@ local function handleQuestLogUpdate(bypassCooldown)
         return
     end
 
-    -- Suppress QUEST_LOG_UPDATE / QUEST_WATCH_LIST_CHANGED events fired synchronously
-    -- by Retail WoW API calls inside QuestCache._buildEntry (e.g. C_QuestLog calls that
-    -- trigger the event as a side-effect). Real player-action events bypass this gate.
+    -- Cooldown gate: after each Retail rebuild, some WoW API calls inside
+    -- QuestCache._buildEntry fire QUEST_LOG_UPDATE as a next-frame side-effect.
+    -- Those noise events are blocked here for 100 ms to prevent an infinite loop.
+    -- A one-shot follow-up rebuild (see timer callback below) fires at t+150 ms,
+    -- after the cooldown expires, to catch server-sent state changes that arrived
+    -- during the window (e.g. isComplete=true arriving after the last-objective rebuild).
+    -- Real player-action events bypass via bypassCooldown=true and are never blocked.
     if not bypassCooldown and GetTime() < EventEngine.rebuildCooldownUntil then
         if AQL.debug == "verbose" then
             DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] handleQuestLogUpdate suppressed (cooldown)" .. AQL.RESET)
@@ -504,13 +510,26 @@ local function handleQuestLogUpdate(bypassCooldown)
         AQL.provider = AQL.providers[AQL.Capability.Chain] or AQL.NullProvider
 
         local oldCache = AQL.QuestCache:Rebuild()
-        -- On Retail some C_QuestLog calls inside Rebuild fire QUEST_LOG_UPDATE
-        -- synchronously as a side-effect. Gate subsequent noise events for 100 ms so
-        -- they don't schedule another rebuild. Scoped to Retail only — the loop does
-        -- not occur on Classic/TBC/MoP because SelectQuestLogEntry does not fire the
-        -- event on those clients.
         if WowQuestAPI.IS_RETAIL then
+            -- Block next-frame QUEST_LOG_UPDATE side-effects from _buildEntry for 100 ms.
             EventEngine.rebuildCooldownUntil = GetTime() + 0.1
+
+            -- One-shot follow-up: fires after the cooldown expires to pick up any
+            -- server-sent state changes (e.g. isComplete=true) that arrived during
+            -- the cooldown window and were blocked. Uses the same generation token
+            -- so a real player action (which bumps gen) cancels it automatically —
+            -- the real action's own rebuild captures the state change instead.
+            C_Timer.After(0.15, function()
+                if EventEngine.debounceGeneration ~= gen then return end
+                if EventEngine.diffInProgress then return end
+                local followCache = AQL.QuestCache:Rebuild()
+                if WowQuestAPI.IS_RETAIL then
+                    EventEngine.rebuildCooldownUntil = GetTime() + 0.1
+                end
+                if followCache ~= nil then
+                    runDiff(followCache)
+                end
+            end)
         end
         if oldCache == nil then return end
 

@@ -68,13 +68,23 @@ function QuestCache:Rebuild()
                     currentZone = info.title
                 end
             else
-                -- Wrap each entry build in pcall so one bad entry never aborts the loop.
-                local ok, entryOrErr = pcall(self._buildEntry, self, questID, info, currentZone, i)
-                if ok and entryOrErr then
-                    new[questID] = entryOrErr
-                elseif not ok and AQL.debug then
-                    DEFAULT_CHAT_FRAME:AddMessage(AQL.RED .. "[AQL] QuestCache: error building entry for questID "
-                        .. tostring(questID) .. ": " .. tostring(entryOrErr) .. AQL.RESET)
+                -- Skip entries with invalid questID (0 or nil). On Retail some transient
+                -- quest log entries report questID=0 with isHeader=false — they are not
+                -- real quests and must not be cached or diffed.
+                if not questID or questID == 0 then
+                    if AQL.debug == "verbose" then
+                        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: skipping entry with questID="
+                            .. tostring(questID) .. " title='" .. tostring(info.title or "") .. "'" .. AQL.RESET)
+                    end
+                else
+                    -- Wrap each entry build in pcall so one bad entry never aborts the loop.
+                    local ok, entryOrErr = pcall(self._buildEntry, self, questID, info, currentZone, i)
+                    if ok and entryOrErr then
+                        new[questID] = entryOrErr
+                    elseif not ok and AQL.debug then
+                        DEFAULT_CHAT_FRAME:AddMessage(AQL.RED .. "[AQL] QuestCache: error building entry for questID "
+                            .. tostring(questID) .. ": " .. tostring(entryOrErr) .. AQL.RESET)
+                    end
                 end
             end
         end
@@ -169,6 +179,21 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
                 isFinished   = obj.finished == true,
                 isFailed     = false,
             }
+        end
+    end
+
+    -- On Retail, C_QuestLog.GetInfo().isComplete returns nil even after all objectives
+    -- are fulfilled — it does not transition to true until after the quest is turned in.
+    -- Derive isComplete from objective state instead: if the quest has at least one
+    -- objective and every objective has isFinished=true, the quest is ready to turn in.
+    -- Only applied on Retail and only when the API did not already supply a true value.
+    if WowQuestAPI.IS_RETAIL and not isComplete and #objectives > 0 then
+        isComplete = true
+        for _, obj in ipairs(objectives) do
+            if not obj.isFinished then
+                isComplete = false
+                break
+            end
         end
     end
 
