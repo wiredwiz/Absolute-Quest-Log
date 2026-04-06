@@ -347,6 +347,70 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 3.5.3 (April 2026)
+- Bug fix: `AQL:GetQuestAliasKey` now uses title-based fingerprinting on MoP Classic
+  in addition to Retail. Previously the non-Retail path returned `tostring(questID)`
+  with no fingerprinting, so `AreQuestsAliases(X, Y)` always returned false on MoP
+  even when X and Y were the same logical quest with different race/class variant IDs.
+  Fix: changed guard from `if not IS_RETAIL` to `if not IS_RETAIL and not IS_MOP`.
+  Returns nil (not in active cache) instead of a simple questID string, consistent
+  with Retail behavior. Callers should use `AQL:GetQuestAliasKey(id) or tostring(id)`
+  as a fallback.
+
+### Version 3.5.2 (April 2026)
+- Bug fix: `AQL_QUEST_FINISHED` never fired on Retail. Root cause: on Retail,
+  `C_QuestLog.GetInfo().isComplete` returns `nil` (not `true`) even after all objectives
+  are fulfilled — it does not transition before turn-in. `QuestCache._buildEntry` now
+  derives `isComplete` from objective state on Retail: if the quest has at least one
+  objective and every objective has `isFinished=true`, `isComplete` is set to `true`. This
+  matches the semantics of `AQL_QUEST_FINISHED` (objectives met, ready to turn in) on
+  all WoW versions. Non-Retail behavior is unchanged.
+- Bug fix: transient `questID=0` entries — non-header entries that `C_QuestLog.GetInfo()`
+  returns with `questID=0` during brief quest-log transition states on Retail — were being
+  written into the cache and generating spurious `AQL_OBJECTIVE_COMPLETED` callbacks.
+  `QuestCache:Rebuild` now skips any non-header entry whose `questID` is `0` or `nil`.
+
+### Version 3.5.1 (April 2026)
+- Bug fix: `/aql fire finished` (`AQL_QUEST_FINISHED`) now passes `isComplete=true` in
+  the `questInfo` seen by subscribers. AQL only fires `AQL_QUEST_FINISHED` when
+  `isComplete` transitions to true — the stub used `false`, causing SQ's `SQ_UPDATE`
+  payload to encode `isComplete=0`. The receiving party member then stored `false` for
+  the sender's quest state, and `checkAllCompleted`'s remote-done check suppressed
+  "Everyone Completed". Fix: wrap questInfo in a `setmetatable` proxy that overrides
+  `isComplete=true` without mutating the AQL cache entry.
+
+### Version 3.5.0 (April 2026)
+- Feature: `/aql list` — prints all quests in the active cache sorted by questID with
+  each quest's title. Useful for identifying questIDs to use with `/aql fire`.
+- Feature: `/aql fire <questid> <event>` — artificially fires any AQL callback for a
+  given quest. `questInfo` is resolved from the live cache (`GetQuest`/`GetQuestInfo`)
+  with a minimal stub fallback when the quest is not in the log. Objective events
+  (`progressed`, `obj_completed`, `regressed`, `obj_failed`) receive a synthetic
+  `objInfo` with 10/10 progress. Accepts short event names (`finished`, `completed`,
+  `accepted`, etc.) or full lowercased event strings (`aql_quest_finished`, etc.).
+  Prints a confirmation message with the resolved title.
+
+### Version 3.4.1 (April 2026)
+- Bug fix: `AQL:IsQuestObjectiveText` now correctly matches Retail's count-first objective
+  text format (`"X/Y Description"`) in addition to the existing count-last format
+  (`"Description: X/Y"`). Previously the function only matched count-last, so on Retail
+  the `UI_INFO_MESSAGE` suppression in SocialQuest never fired — WoW's built-in floating
+  progress text showed alongside SQ's own banner. Fix: added count-first pattern
+  (`^%d+/%d+%s+(.+)$`) as a second match fallback; comparison now uses `obj.name` (count
+  already stripped by `_buildEntry` since 3.2.19) instead of `obj.text:sub(1, baseLen)`.
+
+### Version 3.4.0 (April 2026)
+- Bug fix: `AQL_QUEST_FINISHED` never fired on Retail after the last objective completed.
+  Root cause: on Retail some `C_QuestLog` calls inside `QuestCache._buildEntry` fire
+  `QUEST_LOG_UPDATE` as a next-frame side-effect; the 100 ms cooldown gate blocks those
+  noise events to prevent an infinite rebuild loop — but also silently dropped the
+  server's `isComplete=true` update, which typically arrives within the same 100 ms window.
+  Fix: after each Retail rebuild, a one-shot follow-up rebuild fires at t+150 ms (after
+  the cooldown expires). It re-reads the current quest log state, detects the `isComplete`
+  transition the cooldown blocked, and fires `AQL_QUEST_FINISHED`. Uses the same debounce
+  generation token as the original rebuild, so any real player action (which bumps gen)
+  cancels it — the real action's own rebuild captures the state instead.
+
 ### Version 3.3.0 (April 2026)
 - Feature: `AQL:GetQuestAliasKey(questID)` — returns a stable fingerprint key for a
   quest (title + zone + sorted objective names/counts). On Retail, two questIDs that
