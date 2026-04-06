@@ -174,11 +174,11 @@ end
 -- sorted objective name/count pairs. Two questIDs that are the same logical
 -- quest (e.g. Retail variant questIDs assigned per race/class character type)
 -- return identical keys.
--- On non-Retail versions: returns tostring(questID) — no fingerprint overhead.
--- On Retail: returns nil when questID is not in the active QuestCache.
+-- On non-Retail/non-MoP versions: returns tostring(questID) — no fingerprint overhead.
+-- On Retail and MoP Classic: returns nil when questID is not in the active QuestCache.
 --   Callers that need a fallback should use: AQL:GetQuestAliasKey(id) or tostring(id)
 function AQL:GetQuestAliasKey(questID)
-    if not WowQuestAPI.IS_RETAIL then
+    if not WowQuestAPI.IS_RETAIL and not WowQuestAPI.IS_MOP then
         return tostring(questID)
     end
     local info = self.QuestCache and self.QuestCache:Get(questID)
@@ -502,13 +502,17 @@ end
 function AQL:IsQuestObjectiveText(msg)
     if not msg then return false end
     if not self.QuestCache then return false end
-    local msgBase = msg:match("^(.+):%s*%d+/%d+$")
+    -- Extract the base description, stripping the embedded count.
+    -- Count-last (TBC/Classic): "Tainted Ooze killed: 4/10" → "Tainted Ooze killed"
+    -- Count-first (Retail):     "4/10 Tainted Ooze killed"  → "Tainted Ooze killed"
+    local msgBase = msg:match("^(.+):%s*%d+/%d+%s*$")
+                 or msg:match("^%d+/%d+%s+(.+)$")
     if not msgBase then return false end
-    local baseLen = #msgBase
     for _, quest in pairs(self.QuestCache.data) do
         if quest.objectives then
             for _, obj in ipairs(quest.objectives) do
-                if obj.text and obj.text:sub(1, baseLen) == msgBase then
+                -- obj.name has the count already stripped by _buildEntry (since 3.2.19).
+                if obj.name and obj.name == msgBase then
                     return true
                 end
             end
@@ -1201,7 +1205,94 @@ SlashCmdList["ABSOLUTEQUESTLOG"] = function(input)
         else
             DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off]" .. aql.RESET)
         end
+    elseif sub == "list" then
+        local quests = aql:GetAllQuests()
+        local ids = {}
+        for questID in pairs(quests) do
+            ids[#ids + 1] = questID
+        end
+        table.sort(ids)
+        if #ids == 0 then
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Quest cache is empty." .. aql.RESET)
+        else
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Quest cache (" .. #ids .. " quests):" .. aql.RESET)
+            for _, questID in ipairs(ids) do
+                local info = quests[questID]
+                local title = (info and info.title) or "?"
+                DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "  " .. questID .. ": " .. title .. aql.RESET)
+            end
+        end
+    elseif sub == "fire" then
+        local qidStr, evtStr = arg:match("^(%S+)%s+(%S+)%s*$")
+        if not qidStr then
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql fire <questid> <event>" .. aql.RESET)
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Events: accepted, abandoned, completed, finished, failed, tracked, untracked, progressed, obj_completed, regressed, obj_failed" .. aql.RESET)
+        else
+            local questID = tonumber(qidStr)
+            if not questID then
+                DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] /aql fire: invalid questID '" .. qidStr .. "'" .. aql.RESET)
+            else
+                local eventMap = {
+                    accepted                    = "AQL_QUEST_ACCEPTED",
+                    abandoned                   = "AQL_QUEST_ABANDONED",
+                    completed                   = "AQL_QUEST_COMPLETED",
+                    finished                    = "AQL_QUEST_FINISHED",
+                    failed                      = "AQL_QUEST_FAILED",
+                    tracked                     = "AQL_QUEST_TRACKED",
+                    untracked                   = "AQL_QUEST_UNTRACKED",
+                    progressed                  = "AQL_OBJECTIVE_PROGRESSED",
+                    obj_completed               = "AQL_OBJECTIVE_COMPLETED",
+                    regressed                   = "AQL_OBJECTIVE_REGRESSED",
+                    obj_failed                  = "AQL_OBJECTIVE_FAILED",
+                    aql_quest_accepted          = "AQL_QUEST_ACCEPTED",
+                    aql_quest_abandoned         = "AQL_QUEST_ABANDONED",
+                    aql_quest_completed         = "AQL_QUEST_COMPLETED",
+                    aql_quest_finished          = "AQL_QUEST_FINISHED",
+                    aql_quest_failed            = "AQL_QUEST_FAILED",
+                    aql_quest_tracked           = "AQL_QUEST_TRACKED",
+                    aql_quest_untracked         = "AQL_QUEST_UNTRACKED",
+                    aql_objective_progressed    = "AQL_OBJECTIVE_PROGRESSED",
+                    aql_objective_completed     = "AQL_OBJECTIVE_COMPLETED",
+                    aql_objective_regressed     = "AQL_OBJECTIVE_REGRESSED",
+                    aql_objective_failed        = "AQL_OBJECTIVE_FAILED",
+                }
+                local eventName = eventMap[evtStr]
+                if not eventName then
+                    DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] /aql fire: unknown event '" .. evtStr .. "'" .. aql.RESET)
+                else
+                    local questInfo = aql:GetQuest(questID) or aql:GetQuestInfo(questID) or {
+                        questID    = questID,
+                        title      = "Quest " .. questID,
+                        objectives = {},
+                        isComplete = false,
+                        isFailed   = false,
+                    }
+                    -- AQL_QUEST_FINISHED semantics: fires when isComplete transitions true.
+                    -- Wrap with a proxy so the cache entry is not mutated but consumers
+                    -- (e.g. SQ's SQ_UPDATE payload builder) see the correct state.
+                    if eventName == "AQL_QUEST_FINISHED" then
+                        questInfo = setmetatable({ isComplete = true }, { __index = questInfo })
+                    end
+                    if eventName:find("OBJECTIVE") then
+                        local objInfo = {
+                            index        = 1,
+                            text         = "Test Objective: 10/10",
+                            name         = "Test Objective",
+                            type         = "kill",
+                            numFulfilled = 10,
+                            numRequired  = 10,
+                            isFinished   = true,
+                            isFailed     = false,
+                        }
+                        aql.callbacks:Fire(eventName, questInfo, objInfo, 1)
+                    else
+                        aql.callbacks:Fire(eventName, questInfo)
+                    end
+                    DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Fired " .. eventName .. " for quest " .. questID .. " (" .. (questInfo.title or "?") .. ")" .. aql.RESET)
+                end
+            end
+        end
     else
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off]" .. aql.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off] | /aql list | /aql fire <questid> <event>" .. aql.RESET)
     end
 end
