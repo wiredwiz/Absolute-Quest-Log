@@ -1,6 +1,30 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 3.7.1 (April 2026)
+============================
+- Bug fix: QuestieProvider:GetQuestDetails was calling pcall(db.GetQuest, db, questID),
+  passing the QuestieDB table as the questID argument. QuestieDB.GetQuest is a plain
+  function (dot notation, no self parameter), so the self argument caused every lookup
+  to fail and return nil. Fixed to pcall(db.GetQuest, questID), matching the call
+  pattern already used correctly in GetQuestBasicInfo and buildReverseChain.
+
+Version 3.7.0 (April 2026)
+============================
+- New public API: AQL:GetQuestDetails(questID) — returns description, starterNPC,
+  starterZone, finisherNPC, finisherZone, isDungeon, isRaid from the Details capability
+  provider (Questie). Returns nil when no Details provider is active or the quest is
+  unknown to it. Allows callers to get Details fields for quests in the player's active
+  log, where GetQuestInfo Tier 1 (cache path) returns the raw cache entry without them.
+
+Version 3.6.0 (April 2026)
+============================
+- Feature: Details capability (AQL.Capability.Details). New provider interface method
+  GetQuestDetails(questID) returns description, NPC info, and type flags for any
+  questID. QuestieProvider, NullProvider, GrailProvider, and Provider.lua updated.
+  EventEngine selects the Details provider slot at startup. GetQuestInfo Tier 2 and
+  Tier 3 paths merge Details fields into the returned result for non-cached quests.
+
 Version 3.5.2 (April 2026)
 ============================
 - Bug fix: AQL_QUEST_FINISHED never fired on Retail. Root cause: on Retail,

@@ -523,6 +523,21 @@ function AQL:GetQuestInfo(questID)
     }
 end
 
+-- Returns quest details from the Details capability provider (Questie).
+-- The returned table may include: description, starterNPC, starterZone,
+-- finisherNPC, finisherZone, isDungeon, isRaid.
+-- Returns nil when no Details provider is active or the quest is unknown to it.
+-- NOTE: GetQuestInfo Tier 1 (cache path) does not populate these fields; call
+-- this method directly when description or NPC lines are needed for a quest
+-- that may be in the player's active log.
+function AQL:GetQuestDetails(questID)
+    local dp = self.providers and self.providers[self.Capability.Details]
+    if not dp then return nil end
+    local ok, details = pcall(dp.GetQuestDetails, dp, questID)
+    if ok then return details end
+    return nil
+end
+
 -- Returns the title string for any questID, or nil.
 -- Delegates to GetQuestInfo and extracts .title.
 function AQL:GetQuestTitle(questID)

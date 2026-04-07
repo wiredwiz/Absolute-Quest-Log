@@ -18,6 +18,43 @@
 
 ---
 
+## Known Performance Issues (Deferred — Do Not Fix Without Instruction)
+
+Observed in April 2026: clients freeze for ~10 seconds on group join and again on group
+leave when a Questie-only player groups with a SQ player. Two root causes identified:
+
+### AQL — GrailProvider lazy init freeze (Critical)
+
+**`buildReverseMap()` in `Providers/GrailProvider.lua`**
+- Runs on the *first* `GetChainInfo()` call and iterates the entire Grail quest database
+  (10,000+ quests) in three sequential passes, calling expensive Grail API lookups
+  (`QuestName`, `QuestLocationsAccept`, `MapAreaName`) per entry. Fully synchronous,
+  blocks the main thread for 10–30 seconds.
+- Triggered because `QuestCache:_buildEntry()` calls `chainProvider.GetChainInfo()` for
+  every quest in the player's active log during `Rebuild()`, which fires on
+  `GROUP_ROSTER_UPDATE`. The first call in the loop triggers the full map build.
+- **Fix direction:** Call `buildReverseMap()` once at provider selection time via
+  `C_Timer.After(0)` rather than lazily on first query. Cache chain info results at the
+  `QuestCache` level so subsequent rebuilds don't re-query the provider per quest.
+
+**`buildChainFromRoot()` in `Providers/GrailProvider.lua`** (High)
+- Unbounded BFS over the Grail prerequisite graph with O(N²) successor comparison and
+  O(M³) convergence checks for branching chains. Called per quest during Rebuild.
+- **Fix direction:** Cache results by questID; avoid re-running BFS for already-resolved chains.
+
+### SQ — QuestieBridge GetSnapshot() freeze (Medium)
+
+**`GetSnapshot()` in `Core/QuestieBridge.lua`**
+- Pivots Questie's 2D `remoteQuestLogs` table (quest×player) into SQ's player×quest
+  format by calling `_BuildQuestEntry()` for every quest for every player — O(quests ×
+  players) with no filtering. In a raid this can be 40 members × thousands of quests.
+  Runs on the hydration timer at t+4s and t+8s after Questie request, explaining the
+  delayed second freeze.
+- **Fix direction:** Build snapshot incrementally as Questie data arrives, or filter to
+  only quests that appear in any player's active log before pivoting.
+
+---
+
 ## Architecture
 
 ### Bundled Libraries (`Libs\`)
@@ -93,6 +130,7 @@ Data and state queries about quests. No interaction with the quest log frame.
 | Method | Returns | Notes |
 |---|---|---|
 | `AQL:GetQuestInfo(questID)` | `QuestInfo` or nil | Tier 1: cache → Tier 2: WoW log scan / title fallback → Tier 3: provider |
+| `AQL:GetQuestDetails(questID)` | table or nil | Description, NPC info, type flags from Details provider (Questie). Returns nil when no Details provider. Use when `GetQuestInfo` Tier 1 cache result is missing these fields. |
 | `AQL:GetQuestTitle(questID)` | string or nil | Delegates to `GetQuestInfo` |
 | `AQL:GetQuestLink(questID)` | hyperlink or nil | Tier 1: cache link → Tier 2/3: `GetQuestInfo` |
 
@@ -346,6 +384,31 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 ---
 
 ## Version History
+
+### Version 3.7.1 (April 2026)
+- Bug fix: `QuestieProvider:GetQuestDetails` was calling `pcall(db.GetQuest, db, questID)`,
+  passing the QuestieDB table as the questID argument. `QuestieDB.GetQuest` is a plain
+  function (dot notation, no self parameter), so the extra `db` argument caused every
+  lookup to fail and return nil. Fixed to `pcall(db.GetQuest, questID)`, matching the
+  call pattern already used correctly in `GetQuestBasicInfo` and `buildReverseChain`.
+
+### Version 3.7.0 (April 2026)
+- New public API: `AQL:GetQuestDetails(questID)` — returns the Details capability
+  provider's result (description, starterNPC, starterZone, finisherNPC, finisherZone,
+  isDungeon, isRaid) for any questID. Returns nil when no Details provider is active
+  or the quest is unknown to it. Callers need this because `GetQuestInfo` Tier 1 (cache
+  path) returns the raw `QuestCache` entry, which does not include Details-capability
+  fields; `GetQuestDetails` fills that gap without requiring callers to access
+  `AQL.providers` internals directly.
+
+### Version 3.6.0 (April 2026)
+- Feature: Details capability (`AQL.Capability.Details`). New provider interface method
+  `GetQuestDetails(questID)` returns description (from Questie `objectivesText`), NPC
+  info (starterNPC, starterZone, finisherNPC, finisherZone), and type flags (isDungeon,
+  isRaid) for any questID. `QuestieProvider`, `NullProvider`, `GrailProvider`, and
+  `Provider.lua` interface doc all updated. `EventEngine` selects the Details provider
+  slot at startup alongside Chain/QuestInfo/Requirements slots. `GetQuestInfo` Tier 2
+  and Tier 3 paths merge Details fields into the returned result for non-cached quests.
 
 ### Version 3.5.3 (April 2026)
 - Bug fix: `AQL:GetQuestAliasKey` now uses title-based fingerprinting on MoP Classic

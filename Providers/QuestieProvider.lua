@@ -328,7 +328,7 @@ end
 function QuestieProvider:GetQuestDetails(questID)
     local db = getDB()
     if not db then return nil end
-    local ok, quest = pcall(db.GetQuest, db, questID)
+    local ok, quest = pcall(db.GetQuest, questID)
     if not ok or not quest then return nil end
 
     -- Description: objectivesText is an array of strings; join with newlines.
