@@ -25,6 +25,13 @@ Version 3.6.0 (April 2026)
   EventEngine selects the Details provider slot at startup. GetQuestInfo Tier 2 and
   Tier 3 paths merge Details fields into the returned result for non-cached quests.
 
+Version 3.5.3 (April 2026)
+============================
+- Bug fix: AQL:GetQuestAliasKey now fingerprints quests on MoP Classic the
+  same way it does on Retail. Previously, variant quest IDs (same logical quest,
+  different numeric ID per race/class character type) were never detected as
+  aliases on MoP Classic — AreQuestsAliases always returned false there.
+
 Version 3.5.2 (April 2026)
 ============================
 - Bug fix: AQL_QUEST_FINISHED never fired on Retail. Root cause: on Retail,

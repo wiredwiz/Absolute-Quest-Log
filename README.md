@@ -9,7 +9,7 @@ A version-agnostic WoW addon library that provides a clean, stable API for quest
 | Classic Era | 1.14.x (11508) | ✅ Supported |
 | TBC Classic | 2.5.x (20505) | ✅ Supported |
 | Mists of Pandaria Classic | 5.4.x (50503) | ✅ Supported |
-| Retail (The War Within) | 11.x (120001) | 🚧 In development |
+| Retail (The War Within) | 11.x (120001) | ✅ Supported |
 
 ---
 
@@ -159,11 +159,22 @@ All methods are called on the library handle: `AQL:MethodName(...)`.
 | `AQL:GetCompletedQuests()` | `{[questID]=true}` | All quests ever completed by this character (loaded at login from the server's completion record). |
 | `AQL:GetCompletedQuestCount()` | number | Count of completed quests. |
 
+#### Quest Aliases (Retail / MoP Classic)
+
+On Retail and MoP Classic, Blizzard assigns different questIDs for the same logical quest
+depending on the player's race or class. These methods let you detect and handle such variants.
+
+| Method | Returns | Description |
+|---|---|---|
+| `AQL:GetQuestAliasKey(questID)` | string or nil | Returns a stable fingerprint for the quest (title + zone + objective signature). Two questIDs that represent the same logical quest return the same key. Returns nil if the quest is not in the active cache. On Classic Era and TBC, returns `tostring(questID)` with no overhead. |
+| `AQL:AreQuestsAliases(id1, id2)` | bool | Returns true when both questIDs fingerprint to the same logical quest. Returns false if either is not in the active cache. |
+
 #### Quest Resolution
 
 | Method | Returns | Description |
 |---|---|---|
 | `AQL:GetQuestInfo(questID)` | QuestInfo or nil | Three-tier resolution: cache → WoW log scan → provider DB. `questID` is always present in the result; `title` is present when any tier finds it but may be nil on a chain-data-only provider result. |
+| `AQL:GetQuestDetails(questID)` | table or nil | Returns quest details from the Details provider (Questie): `description`, `starterNPC`, `starterZone`, `finisherNPC`, `finisherZone`, `isDungeon`, `isRaid`. Returns nil when no Details provider is active. Use this when `GetQuestInfo` Tier 1 results are missing these fields (they are not stored in the live cache). |
 | `AQL:GetQuestTitle(questID)` | string or nil | Returns the quest title. Delegates to `GetQuestInfo`. |
 | `AQL:GetQuestLink(questID)` | hyperlink or nil | Returns a chat-linkable hyperlink for the quest. |
 
@@ -392,3 +403,16 @@ Use `AQL.ChainStatus.Known`, `AQL.ChainStatus.NotAChain`, and `AQL.ChainStatus.U
 ```
 
 Debug messages are prefixed `[AQL]` in gold.
+
+### Developer Tools
+
+```
+/aql list                  -- Print all quests in the active cache (ID + title)
+/aql fire <questid> <event> -- Artificially fire an AQL callback for testing
+```
+
+The `/aql fire` command accepts short event names (`finished`, `completed`, `accepted`,
+`abandoned`, `failed`, `progressed`, `obj_completed`, `regressed`, `obj_failed`) or full
+event strings (`aql_quest_finished`, etc.). The quest is resolved from the live cache or
+constructed as a minimal stub if not in the log. Useful for testing SocialQuest banner and
+announce behavior without needing another player.
