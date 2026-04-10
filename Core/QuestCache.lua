@@ -18,16 +18,16 @@ QuestCache.data = {}
 function QuestCache:Rebuild()
     local new = {}
     local currentZone = nil
-    local originalSelection = GetQuestLogSelection()
+    local originalSelection = WowQuestAPI.GetQuestLogSelection()
 
     -- Phase 1: Collect collapsed zone headers.
     if AQL.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 1 — collecting collapsed headers" .. AQL.RESET)
     end
     local collapsedHeaders = {}
-    local numEntries = GetNumQuestLogEntries()
+    local numEntries = WowQuestAPI.GetNumQuestLogEntries()
     for i = 1, numEntries do
-        local title, _, _, isHeader, isCollapsed = GetQuestLogTitle(i)
+        local title, _, _, isHeader, isCollapsed = WowQuestAPI.GetQuestLogTitle(i)
         if title and isHeader and isCollapsed then
             table.insert(collapsedHeaders, { index = i, title = title })
         end
@@ -42,40 +42,49 @@ function QuestCache:Rebuild()
         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 2 — expanding headers" .. AQL.RESET)
     end
     for k = #collapsedHeaders, 1, -1 do
-        ExpandQuestHeader(collapsedHeaders[k].index)
+        WowQuestAPI.ExpandQuestHeader(collapsedHeaders[k].index)
     end
 
     -- Phase 3: Full rebuild — all quests now visible.
     if AQL.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 3 — building entries" .. AQL.RESET)
     end
-    numEntries = GetNumQuestLogEntries()
+    numEntries = WowQuestAPI.GetNumQuestLogEntries()
     for i = 1, numEntries do
-        -- TBC 20505: C_QuestLog.GetInfo() does not exist; use GetQuestLogTitle() global.
-        -- Returns: title, level, suggestedGroup, isHeader, isCollapsed, isComplete,
-        --          frequency, questID, startEvent, displayQuestID, isOnMap, hasLocalPOI,
-        --          isTask, isBounty, isStory, isHidden, isScaling
-        local title, level, suggestedGroup, isHeader, _, isComplete, _, questID =
-            GetQuestLogTitle(i)
-        if title then
-            local info = {
-                title          = title,
-                level          = level,
-                suggestedGroup = suggestedGroup,  -- nil-safe: _buildEntry applies or 0 fallback
-                isHeader       = isHeader,
-                isComplete     = isComplete,
-                questID        = questID,
-            }
+        -- GetQuestLogInfo normalizes Classic/TBC/MoP positional returns and Retail
+        -- C_QuestLog.GetInfo() table into a single consistent table.
+        -- Returns nil for a malformed/out-of-range entry — skip (do not break).
+        -- Loop termination is controlled by the numEntries bound above.
+        local info = WowQuestAPI.GetQuestLogInfo(i)
+        if not info then
+            -- skip this entry; do not break — a nil mid-log entry should not
+            -- cut off all subsequent quests from the cache rebuild
+        else
+            local title, level, suggestedGroup, isHeader, isCollapsed, isComplete, questID =
+                info.title, info.level, info.suggestedGroup, info.isHeader,
+                info.isCollapsed, info.isComplete, info.questID
             if info.isHeader then
-                currentZone = info.title
+                if not (info.campaignID and info.campaignID ~= 0) then
+                    currentZone = info.title
+                end
             else
-                -- Wrap each entry build in pcall so one bad entry never aborts the loop.
-                local ok, entryOrErr = pcall(self._buildEntry, self, questID, info, currentZone, i)
-                if ok and entryOrErr then
-                    new[questID] = entryOrErr
-                elseif not ok and AQL.debug then
-                    DEFAULT_CHAT_FRAME:AddMessage(AQL.RED .. "[AQL] QuestCache: error building entry for questID "
-                        .. tostring(questID) .. ": " .. tostring(entryOrErr) .. AQL.RESET)
+                -- Skip entries with invalid questID (0 or nil). On Retail some transient
+                -- quest log entries report questID=0 with isHeader=false — they are not
+                -- real quests and must not be cached or diffed.
+                if not questID or questID == 0 then
+                    if AQL.debug == "verbose" then
+                        DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: skipping entry with questID="
+                            .. tostring(questID) .. " title='" .. tostring(info.title or "") .. "'" .. AQL.RESET)
+                    end
+                else
+                    -- Wrap each entry build in pcall so one bad entry never aborts the loop.
+                    local ok, entryOrErr = pcall(self._buildEntry, self, questID, info, currentZone, i)
+                    if ok and entryOrErr then
+                        new[questID] = entryOrErr
+                    elseif not ok and AQL.debug then
+                        DEFAULT_CHAT_FRAME:AddMessage(AQL.RED .. "[AQL] QuestCache: error building entry for questID "
+                            .. tostring(questID) .. ": " .. tostring(entryOrErr) .. AQL.RESET)
+                    end
                 end
             end
         end
@@ -96,16 +105,16 @@ function QuestCache:Rebuild()
             collapsedTitles[h.title] = true
         end
         local toCollapse = {}
-        numEntries = GetNumQuestLogEntries()
+        numEntries = WowQuestAPI.GetNumQuestLogEntries()
         for i = 1, numEntries do
-            local title, _, _, isHeader = GetQuestLogTitle(i)
+            local title, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(i)
             if title and isHeader and collapsedTitles[title] then
                 table.insert(toCollapse, i)
             end
         end
         -- Collapse back-to-front to preserve earlier indices.
         for k = #toCollapse, 1, -1 do
-            CollapseQuestHeader(toCollapse[k])
+            WowQuestAPI.CollapseQuestHeader(toCollapse[k])
         end
     end
 
@@ -113,7 +122,7 @@ function QuestCache:Rebuild()
     if AQL.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(AQL.DBG .. "[AQL] QuestCache: phase 5 — restoring selection" .. AQL.RESET)
     end
-    SelectQuestLogEntry(originalSelection or 0)
+    WowQuestAPI.SelectQuestLogEntry(originalSelection or 0)
 
     local old = self.data
     self.data = new
@@ -129,35 +138,37 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
     local isFailed   = false
     local failReason = nil
 
-    -- Timer: requires selecting the quest log entry.
-    -- SelectQuestLogEntry briefly changes quest log UI selection; this is safe
-    -- to do during cache rebuild since it is instantaneous and non-destructive.
-    SelectQuestLogEntry(logIndex)
-    local rawTimer = GetQuestLogTimeLeft()
-    local timerSeconds = (rawTimer and rawTimer > 0) and rawTimer or nil
+    -- Timer: legacy path selects the entry then reads GetQuestLogTimeLeft().
+    -- On Retail, C_QuestLog.SetSelectedQuest fires QUEST_LOG_UPDATE which would
+    -- cause a rebuild loop; GetQuestTimerByIndex skips the call on Retail.
+    local timerSeconds = WowQuestAPI.GetQuestTimerByIndex(logIndex)
 
     -- Quest link: prefer the WoW native API; construct manually if it returns nil
     -- so every QuestCache entry has a valid hyperlink regardless of client version.
-    local link = GetQuestLink(logIndex)
+    local link = WowQuestAPI.GetQuestLinkByIndex(logIndex)
     if not link then
         link = string.format("|cFFFFD200|Hquest:%d:%d|h[%s]|h|r",
             questID, info.level or 0, info.title or ("Quest " .. questID))
     end
 
     -- isTracked: IsQuestWatched takes a quest log index.
-    local isTracked = IsQuestWatched(logIndex) == true
+    local isTracked = WowQuestAPI.IsQuestWatchedByIndex(logIndex)
 
     -- Objectives.
     -- C_QuestLog.GetQuestObjectives returns per-objective: text, type, finished,
-    -- numFulfilled, numRequired. `name` is parsed from text by stripping the
-    -- count suffix (e.g. "Tainted Ooze killed: 4/10" → name = "Tainted Ooze killed").
+    -- numFulfilled, numRequired. `name` is parsed from text by stripping the embedded count.
+    -- Two formats exist across WoW versions:
+    --   Count-last  (TBC/Classic/MoP): "Tainted Ooze killed: 4/10"  → "Tainted Ooze killed"
+    --   Count-first (Retail):          "4/10 Tainted Ooze killed"    → "Tainted Ooze killed"
     -- For event/log types with no count, name equals the full text.
     local objectives = {}
-    local rawObjs = C_QuestLog.GetQuestObjectives(questID)
+    local rawObjs = WowQuestAPI.GetQuestObjectives(questID)
     if rawObjs then
         for idx, obj in ipairs(rawObjs) do
             local text = obj.text or ""
-            local name = text:match("^(.-):%s*%d+/%d+%s*$") or text
+            local name = text:match("^(.-):%s*%d+/%d+%s*$")
+                      or text:match("^%d+/%d+%s+(.+)$")
+                      or text
             objectives[idx] = {
                 index        = idx,
                 text         = text,
@@ -171,23 +182,55 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
         end
     end
 
-    -- Provider data (chain/type/faction).
-    -- AQL.provider may be nil during the very first Rebuild before EventEngine
-    -- has run provider selection. Nil-guard here; the next rebuild after
-    -- PLAYER_LOGIN will have a provider set.
+    -- On Retail, C_QuestLog.GetInfo().isComplete returns nil even after all objectives
+    -- are fulfilled — it does not transition to true until after the quest is turned in.
+    -- Derive isComplete from objective state instead: if the quest has at least one
+    -- objective and every objective has isFinished=true, the quest is ready to turn in.
+    -- Only applied on Retail and only when the API did not already supply a true value.
+    if WowQuestAPI.IS_RETAIL and not isComplete and #objectives > 0 then
+        isComplete = true
+        for _, obj in ipairs(objectives) do
+            if not obj.isFinished then
+                isComplete = false
+                break
+            end
+        end
+    end
+
+    -- Provider data (chain/type/faction) routed through capability slots.
+    -- AQL.providers may be nil during the very first Rebuild before EventEngine
+    -- runs provider selection. Nil-guards here; the next rebuild after
+    -- PLAYER_LOGIN will have providers set.
     local chainInfo = { knownStatus = AQL.ChainStatus.Unknown }
     local questType, questFaction
-    local provider = AQL.provider
-    if provider then
-        local ok, result = pcall(provider.GetChainInfo, provider, questID)
-        if ok and result then chainInfo = result end
 
-        local ok2, result2 = pcall(provider.GetQuestType, provider, questID)
+    local chainProvider = AQL.providers and AQL.providers[AQL.Capability.Chain]
+    if chainProvider then
+        local ok, result = pcall(chainProvider.GetChainInfo, chainProvider, questID)
+        if ok and result then chainInfo = result end
+    end
+
+    local infoProvider = AQL.providers and AQL.providers[AQL.Capability.QuestInfo]
+    if infoProvider then
+        local ok2, result2 = pcall(infoProvider.GetQuestType, infoProvider, questID)
         if ok2 then questType = result2 end
 
-        local ok3, result3 = pcall(provider.GetQuestFaction, provider, questID)
+        local ok3, result3 = pcall(infoProvider.GetQuestFaction, infoProvider, questID)
         if ok3 then questFaction = result3 end
     end
+
+    -- Details capability — description, NPC info, dungeon/raid flags.
+    local questDetails
+    local detailsProvider = AQL.providers and AQL.providers[AQL.Capability.Details]
+    if detailsProvider then
+        local ok4, result4 = pcall(detailsProvider.GetQuestDetails, detailsProvider, questID)
+        if ok4 then questDetails = result4 end
+    end
+
+    -- isGroup: derived from questType; true when type is elite, dungeon, or raid.
+    local isGroup = (questType == AQL.QuestType.Elite
+                  or questType == AQL.QuestType.Dungeon
+                  or questType == AQL.QuestType.Raid) or nil
 
     if AQL.debug == "verbose" then
         local objCount = 0
@@ -205,6 +248,14 @@ function QuestCache:_buildEntry(questID, info, zone, logIndex)
         zone           = zone,
         type           = questType,
         faction        = questFaction,
+        isGroup        = isGroup,
+        description    = questDetails and questDetails.description  or nil,
+        starterNPC     = questDetails and questDetails.starterNPC    or nil,
+        starterZone    = questDetails and questDetails.starterZone   or nil,
+        finisherNPC    = questDetails and questDetails.finisherNPC   or nil,
+        finisherZone   = questDetails and questDetails.finisherZone  or nil,
+        isDungeon      = questDetails and questDetails.isDungeon     or nil,
+        isRaid         = questDetails and questDetails.isRaid        or nil,
         isComplete     = isComplete,
         isFailed       = isFailed,
         failReason     = failReason,
@@ -224,4 +275,17 @@ end
 
 function QuestCache:GetAll()
     return self.data
+end
+
+function QuestCache:_buildAliasKey(info)
+    -- Builds a stable fingerprint for a quest from its observable player identity:
+    -- title, zone, and sorted objective name/count pairs. Retail variant questIDs
+    -- (different numeric IDs for the same logical quest across race/class types)
+    -- produce identical keys. Internal — not part of the public API.
+    local parts = {}
+    for _, obj in ipairs(info.objectives or {}) do
+        table.insert(parts, (obj.name or obj.text or "") .. "/" .. tostring(obj.numRequired or 1))
+    end
+    table.sort(parts)
+    return (info.title or "") .. ":" .. (info.zone or "") .. ":" .. table.concat(parts, "|")
 end

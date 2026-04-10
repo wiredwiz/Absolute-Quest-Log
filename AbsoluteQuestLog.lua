@@ -16,6 +16,7 @@ AQL.callbacks = AQL.callbacks or LibStub("CallbackHandler-1.0"):New(AQL)
 AQL.RED   = "|cffff0000"
 AQL.RESET = "|r"
 AQL.DBG   = "|cFFFFD200"   -- gold (colorblind-safe, distinct from errors and chat text)
+AQL.WARN  = "|cffff8c00"   -- orange; always-on provider warnings (never debug-gated)
 
 -- Sub-module slots — populated by the files that load after this one.
 -- AbsoluteQuestLog.lua loads first (per TOC order), so these are nil until
@@ -23,7 +24,8 @@ AQL.DBG   = "|cFFFFD200"   -- gold (colorblind-safe, distinct from errors and ch
 -- AQL.QuestCache   set by Core/QuestCache.lua
 -- AQL.HistoryCache set by Core/HistoryCache.lua
 -- AQL.EventEngine  set by Core/EventEngine.lua
--- AQL.provider     set by Core/EventEngine.lua at PLAYER_LOGIN
+-- AQL.provider     backward-compat shim; always AQL.providers[AQL.Capability.Chain] or NullProvider
+-- AQL.providers    active provider per AQL.Capability.*; set by Core/EventEngine.lua at PLAYER_LOGIN
 
 ------------------------------------------------------------------------
 -- Enumeration Constants
@@ -51,6 +53,8 @@ AQL.StepStatus = {
 AQL.Provider = {
     Questie     = "Questie",
     QuestWeaver = "QuestWeaver",
+    BtWQuests   = "BtWQuests",
+    Grail       = "Grail",
     None        = "none",
 }
 
@@ -60,6 +64,7 @@ AQL.QuestType = {
     Dungeon = "dungeon",
     Raid    = "raid",
     Daily   = "daily",
+    Weekly  = "weekly",
     PvP     = "pvp",
     Escort  = "escort",
 }
@@ -72,6 +77,26 @@ AQL.Faction = {
 AQL.FailReason = {
     Timeout    = "timeout",
     EscortDied = "escort_died",
+}
+
+-- Capability buckets for the multi-provider routing system.
+-- Each capability is served independently by the highest-priority available+valid provider.
+AQL.Capability = {
+    Chain        = "Chain",        -- GetChainInfo
+    QuestInfo    = "QuestInfo",    -- GetQuestBasicInfo, GetQuestType, GetQuestFaction
+    Requirements = "Requirements", -- GetQuestRequirements
+    Details      = "Details",      -- GetQuestDetails
+}
+
+-- Active provider per capability. Set by Core/EventEngine.lua at PLAYER_LOGIN.
+-- Each slot is nil until provider selection runs.
+-- AQL.provider (singular) is kept as a backward-compatibility shim for external
+-- consumers; it always equals AQL.providers[AQL.Capability.Chain] or AQL.NullProvider.
+AQL.providers = AQL.providers or {
+    [AQL.Capability.Chain]        = nil,
+    [AQL.Capability.QuestInfo]    = nil,
+    [AQL.Capability.Requirements] = nil,
+    [AQL.Capability.Details]      = nil,
 }
 
 AQL.Event = {
@@ -140,6 +165,35 @@ end
 function AQL:IsQuestFinished(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
     return q ~= nil and q.isComplete == true
+end
+
+------------------------------------------------------------------------
+-- Quest Alias
+------------------------------------------------------------------------
+
+-- GetQuestAliasKey(questID) → string or nil
+-- Returns a stable fingerprint key for questID based on title, zone, and
+-- sorted objective name/count pairs. Two questIDs that are the same logical
+-- quest (e.g. Retail variant questIDs assigned per race/class character type)
+-- return identical keys.
+-- On non-Retail/non-MoP versions: returns tostring(questID) — no fingerprint overhead.
+-- On Retail and MoP Classic: returns nil when questID is not in the active QuestCache.
+--   Callers that need a fallback should use: AQL:GetQuestAliasKey(id) or tostring(id)
+function AQL:GetQuestAliasKey(questID)
+    if not WowQuestAPI.IS_RETAIL and not WowQuestAPI.IS_MOP then
+        return tostring(questID)
+    end
+    local info = self.QuestCache and self.QuestCache:Get(questID)
+    if not info then return nil end
+    return self.QuestCache:_buildAliasKey(info)
+end
+
+-- AreQuestsAliases(id1, id2) → bool
+-- Returns true if id1 and id2 are the same logical quest from a player perspective
+-- (identical fingerprint key). Returns false when either questID is not in cache.
+function AQL:AreQuestsAliases(id1, id2)
+    local k1 = self:GetQuestAliasKey(id1)
+    return k1 ~= nil and k1 == self:GetQuestAliasKey(id2)
 end
 
 ------------------------------------------------------------------------
@@ -222,27 +276,132 @@ end
 -- Chain Info
 ------------------------------------------------------------------------
 
+-- Private memoization cache for SelectBestChain. Keyed by "chainID:count:xor:sum".
+-- Cleared by _ClearChainSelectionCache on quest state changes.
+local selectionCache = {}
+
 -- GetChainInfo(questID) → ChainInfo
--- Returns chain info from the cache. Falls back to
--- { knownStatus = AQL.ChainStatus.Unknown } when not found. Never returns nil.
+-- Returns chain info from the cache when Known. If cache has no Known answer,
+-- delegates to the Chain provider (e.g. GrailProvider) as a tier-2 source.
+-- Falls back to cached result (even if NotAChain) or Unknown if provider fails.
+-- Never returns nil.
 function AQL:GetChainInfo(questID)
     local q = self.QuestCache and self.QuestCache:Get(questID)
-    if q and q.chainInfo then
+    if q and q.chainInfo and q.chainInfo.knownStatus == self.ChainStatus.Known then
         return q.chainInfo
     end
-    return { knownStatus = AQL.ChainStatus.Unknown }
+    local provider = self.providers and self.providers[self.Capability.Chain]
+    if provider then
+        local ok, result = pcall(provider.GetChainInfo, provider, questID)
+        if ok and result and result.knownStatus == self.ChainStatus.Known then
+            return result
+        end
+    end
+    return (q and q.chainInfo) or { knownStatus = self.ChainStatus.Unknown }
 end
 
 -- GetChainStep(questID) → number or nil
--- Returns the 1-based step position of questID in its chain, or nil if unknown.
+-- Returns the 1-based step position for the current player's best-fit chain, or nil.
 function AQL:GetChainStep(questID)
-    return self:GetChainInfo(questID).step
+    local r = self:GetChainInfo(questID)
+    if r.knownStatus ~= AQL.ChainStatus.Known then return nil end
+    local engaged = self:_GetCurrentPlayerEngagedQuests()
+    local chain = self:SelectBestChain(r, engaged)
+    return chain and chain.step or nil
 end
 
 -- GetChainLength(questID) → number or nil
--- Returns the total number of quests in questID's chain, or nil if unknown.
+-- Returns the total step count for the current player's best-fit chain, or nil.
 function AQL:GetChainLength(questID)
-    return self:GetChainInfo(questID).length
+    local r = self:GetChainInfo(questID)
+    if r.knownStatus ~= AQL.ChainStatus.Known then return nil end
+    local engaged = self:_GetCurrentPlayerEngagedQuests()
+    local chain = self:SelectBestChain(r, engaged)
+    return chain and chain.length or nil
+end
+
+-- _GetCurrentPlayerEngagedQuests() → { [questID] = true }
+-- Merges HistoryCache (all completed quests) with active QuestCache (all in-log quests).
+-- Used by GetChainStep, GetChainLength, and SocialQuest's Mine tab to score chains
+-- for the local player.
+function AQL:_GetCurrentPlayerEngagedQuests()
+    local engaged = {}
+    if self.HistoryCache then
+        for questID in pairs(self.HistoryCache:GetAll()) do
+            engaged[questID] = true
+        end
+    end
+    if self.QuestCache then
+        for questID in pairs(self.QuestCache:GetAll()) do
+            engaged[questID] = true
+        end
+    end
+    return engaged
+end
+
+-- _ClearChainSelectionCache()
+-- Resets the SelectBestChain memoization cache.
+-- Called by EventEngine on QUEST_ACCEPTED, QUEST_REMOVED, and QUEST_TURNED_IN.
+function AQL:_ClearChainSelectionCache()
+    selectionCache = {}
+end
+
+-- SelectBestChain(chainResult, engagedQuestIDs) → chain entry table or nil
+-- Player-agnostic best-chain selector. Scores each chain in chainResult by counting
+-- how many of its member quests appear in engagedQuestIDs. Returns the highest-scoring
+-- chain entry, or nil if chainResult.knownStatus is not "known".
+--
+-- chainResult:     return value of AQL:GetChainInfo(questID)
+-- engagedQuestIDs: { [questID] = true } — completed + active quests for the target player
+-- returns:         chain entry { chainID, step, length, questCount, steps, provider } or nil
+--
+-- On a tie, the first chain in the chains array is returned (provider-determined order).
+-- Results are memoized per (chainID, fingerprint) where fingerprint is a count:xor:sum
+-- composite of the engaged set. Cache is cleared by _ClearChainSelectionCache.
+function AQL:SelectBestChain(chainResult, engagedQuestIDs)
+    if not chainResult or chainResult.knownStatus ~= AQL.ChainStatus.Known then
+        return nil
+    end
+    engagedQuestIDs = engagedQuestIDs or {}
+    local chains = chainResult.chains
+    if not chains or #chains == 0 then return nil end
+    if #chains == 1 then return chains[1] end  -- fast path: no scoring needed
+
+    -- Build fingerprint of the engaged set: count:xor:sum
+    -- bit.bxor is available in WoW's Lua environment (LuaJIT / Lua BitOp).
+    local count, xorVal, sumVal = 0, 0, 0
+    for qid in pairs(engagedQuestIDs) do
+        count  = count  + 1
+        xorVal = bit.bxor(xorVal, qid)
+        sumVal = sumVal + qid
+    end
+    local fp = count .. ":" .. xorVal .. ":" .. sumVal
+
+    local bestChain, bestScore = chains[1], -1
+    for _, chain in ipairs(chains) do
+        local cacheKey = tostring(chain.chainID or 0) .. ":" .. fp
+        local score = selectionCache[cacheKey]
+        if score == nil then
+            -- Score: count engaged quests that appear anywhere in this chain's steps.
+            score = 0
+            for _, step in ipairs(chain.steps or {}) do
+                if step.questID then
+                    if engagedQuestIDs[step.questID] then score = score + 1 end
+                elseif step.quests then
+                    for _, sq in ipairs(step.quests) do
+                        if engagedQuestIDs[sq.questID] then score = score + 1 end
+                    end
+                end
+            end
+            selectionCache[cacheKey] = score
+        end
+        if score > bestScore then
+            bestScore = score
+            bestChain = chain
+        end
+    end
+
+    return bestChain
 end
 
 ------------------------------------------------------------------------
@@ -253,8 +412,8 @@ end
 --   Tier 1: AQL QuestCache (full normalized snapshot)
 --   Tier 2: WowQuestAPI log scan → { questID, title, level, suggestedGroup, isComplete, zone }
 --           or title-only { questID, title } when not in log; augmented from Tier 3 when zone absent
---   Tier 3: AQL.provider:GetQuestBasicInfo → { title, questLevel, requiredLevel, zone }
---           merged with AQL.provider:GetChainInfo → chainInfo (chainID, step, length)
+--   Tier 3: AQL.providers[AQL.Capability.QuestInfo]:GetQuestBasicInfo → { title, questLevel, requiredLevel, zone }
+--           merged with AQL.providers[AQL.Capability.Chain]:GetChainInfo → chainInfo (chainID, step, length)
 -- Returns nil only when all three tiers have no data.
 function AQL:GetQuestInfo(questID)
     -- Tier 1: cache.
@@ -268,45 +427,82 @@ function AQL:GetQuestInfo(questID)
         -- player's log). Zone is nil only in that path; the log-scan path always
         -- sets zone from the zone-header row. All provider calls are pcall-guarded.
         if not result.zone then
-            local provider = self.provider
-            if provider then
-                if provider.GetQuestBasicInfo then
-                    local ok, basicInfo = pcall(provider.GetQuestBasicInfo, provider, questID)
-                    if ok and basicInfo then
-                        result.zone          = result.zone          or basicInfo.zone
-                        result.level         = result.level         or basicInfo.questLevel
-                        result.requiredLevel = result.requiredLevel or basicInfo.requiredLevel
-                        result.title         = result.title         or basicInfo.title
-                    end
+            local infoProvider  = self.providers and self.providers[AQL.Capability.QuestInfo]
+            local chainProvider = self.providers and self.providers[AQL.Capability.Chain]
+            if infoProvider and infoProvider.GetQuestBasicInfo then
+                local ok, basicInfo = pcall(infoProvider.GetQuestBasicInfo, infoProvider, questID)
+                if ok and basicInfo then
+                    result.zone          = result.zone          or basicInfo.zone
+                    result.level         = result.level         or basicInfo.questLevel
+                    result.requiredLevel = result.requiredLevel or basicInfo.requiredLevel
+                    result.title         = result.title         or basicInfo.title
                 end
-                if provider.GetChainInfo then
-                    local ok, ci = pcall(provider.GetChainInfo, provider, questID)
-                    if ok and ci then
-                        result.chainInfo = result.chainInfo or ci
-                    end
+            end
+            if chainProvider then
+                local ok, ci = pcall(chainProvider.GetChainInfo, chainProvider, questID)
+                if ok and ci then
+                    result.chainInfo = result.chainInfo or ci
                 end
+            end
+            -- Details capability for non-cached quests.
+            local detailsProvider = self.providers and self.providers[AQL.Capability.Details]
+            if detailsProvider then
+                local ok, details = pcall(detailsProvider.GetQuestDetails, detailsProvider, questID)
+                if ok and details then
+                    result.description  = result.description  or details.description
+                    result.starterNPC   = result.starterNPC   or details.starterNPC
+                    result.starterZone  = result.starterZone  or details.starterZone
+                    result.finisherNPC  = result.finisherNPC  or details.finisherNPC
+                    result.finisherZone = result.finisherZone or details.finisherZone
+                    result.isDungeon    = result.isDungeon    or details.isDungeon
+                    result.isRaid       = result.isRaid       or details.isRaid
+                end
+            end
+            -- Derive isGroup from type if type was populated.
+            if result.type then
+                result.isGroup = (result.type == AQL.QuestType.Elite
+                               or result.type == AQL.QuestType.Dungeon
+                               or result.type == AQL.QuestType.Raid) or nil
             end
         end
         return result
     end
 
     -- Tier 3: provider (Questie / QuestWeaver).
-    local provider = self.provider
-    if not provider then return nil end
+    local infoProvider  = self.providers and self.providers[AQL.Capability.QuestInfo]
+    local chainProvider = self.providers and self.providers[AQL.Capability.Chain]
 
     local basicInfo
-    if provider.GetQuestBasicInfo then
-        local ok, info = pcall(provider.GetQuestBasicInfo, provider, questID)
+    if infoProvider and infoProvider.GetQuestBasicInfo then
+        local ok, info = pcall(infoProvider.GetQuestBasicInfo, infoProvider, questID)
         if ok and info then basicInfo = info end
     end
 
     local chainInfo = { knownStatus = AQL.ChainStatus.Unknown }
-    if provider.GetChainInfo then
-        local ok, ci = pcall(provider.GetChainInfo, provider, questID)
+    if chainProvider then
+        local ok, ci = pcall(chainProvider.GetChainInfo, chainProvider, questID)
         if ok and ci then chainInfo = ci end
     end
 
     if not basicInfo and chainInfo.knownStatus == AQL.ChainStatus.Unknown then return nil end
+
+    -- Details capability for Tier 3 (non-log quests).
+    local questDetails
+    local detailsProvider = self.providers and self.providers[AQL.Capability.Details]
+    if detailsProvider then
+        local ok, details = pcall(detailsProvider.GetQuestDetails, detailsProvider, questID)
+        if ok then questDetails = details end
+    end
+
+    -- questType and isGroup for Tier 3.
+    local questType
+    if infoProvider then
+        local ok, t = pcall(infoProvider.GetQuestType, infoProvider, questID)
+        if ok and t then questType = t end
+    end
+    local isGroup = questType and ((questType == AQL.QuestType.Elite
+                                 or questType == AQL.QuestType.Dungeon
+                                 or questType == AQL.QuestType.Raid) or nil)
 
     return {
         questID       = questID,
@@ -315,7 +511,31 @@ function AQL:GetQuestInfo(questID)
         requiredLevel = basicInfo and basicInfo.requiredLevel or nil,
         zone          = basicInfo and basicInfo.zone          or nil,
         chainInfo     = chainInfo,
+        type          = questType,
+        isGroup       = isGroup,
+        description   = questDetails and questDetails.description  or nil,
+        starterNPC    = questDetails and questDetails.starterNPC    or nil,
+        starterZone   = questDetails and questDetails.starterZone   or nil,
+        finisherNPC   = questDetails and questDetails.finisherNPC   or nil,
+        finisherZone  = questDetails and questDetails.finisherZone  or nil,
+        isDungeon     = questDetails and questDetails.isDungeon     or nil,
+        isRaid        = questDetails and questDetails.isRaid        or nil,
     }
+end
+
+-- Returns quest details from the Details capability provider (Questie).
+-- The returned table may include: description, starterNPC, starterZone,
+-- finisherNPC, finisherZone, isDungeon, isRaid.
+-- Returns nil when no Details provider is active or the quest is unknown to it.
+-- NOTE: GetQuestInfo Tier 1 (cache path) does not populate these fields; call
+-- this method directly when description or NPC lines are needed for a quest
+-- that may be in the player's active log.
+function AQL:GetQuestDetails(questID)
+    local dp = self.providers and self.providers[self.Capability.Details]
+    if not dp then return nil end
+    local ok, details = pcall(dp.GetQuestDetails, dp, questID)
+    if ok then return details end
+    return nil
 end
 
 -- Returns the title string for any questID, or nil.
@@ -346,13 +566,17 @@ end
 function AQL:IsQuestObjectiveText(msg)
     if not msg then return false end
     if not self.QuestCache then return false end
-    local msgBase = msg:match("^(.+):%s*%d+/%d+$")
+    -- Extract the base description, stripping the embedded count.
+    -- Count-last (TBC/Classic): "Tainted Ooze killed: 4/10" → "Tainted Ooze killed"
+    -- Count-first (Retail):     "4/10 Tainted Ooze killed"  → "Tainted Ooze killed"
+    local msgBase = msg:match("^(.+):%s*%d+/%d+%s*$")
+                 or msg:match("^%d+/%d+%s+(.+)$")
     if not msgBase then return false end
-    local baseLen = #msgBase
     for _, quest in pairs(self.QuestCache.data) do
         if quest.objectives then
             for _, obj in ipairs(quest.objectives) do
-                if obj.text and obj.text:sub(1, baseLen) == msgBase then
+                -- obj.name has the count already stripped by _buildEntry (since 3.2.19).
+                if obj.name and obj.name == msgBase then
                     return true
                 end
             end
@@ -374,7 +598,7 @@ end
 -- the provider has no data for this questID.
 -- Designed to always return data once QuestieDB is bundled into AQL.
 function AQL:GetQuestRequirements(questID)
-    local provider = self.provider
+    local provider = self.providers and self.providers[AQL.Capability.Requirements]
     if not provider or not provider.GetQuestRequirements then
         return nil
     end
@@ -392,7 +616,7 @@ end
 -- Returns true if the quest was successfully handed to AddQuestWatch.
 -- Caller is responsible for displaying a message when false is returned.
 function AQL:TrackQuest(questID)
-    if GetNumQuestWatches() >= MAX_WATCHABLE_QUESTS then
+    if WowQuestAPI.GetWatchedQuestCount() >= WowQuestAPI.GetMaxWatchableQuests() then
         return false
     end
     WowQuestAPI.TrackQuest(questID)
@@ -523,8 +747,22 @@ function AQL:IsQuestLogShown()
     return WowQuestAPI.IsQuestLogShown()
 end
 
+-- IsQuestDetailShown() → bool
+-- Returns true if QuestModelScene is visible (rendering an NPC portrait).
+-- On Retail: delegates to WowQuestAPI.IsQuestDetailPanelShown(). NOTE: due to Retail's
+-- split-pane quest log layout, QuestModelScene may remain visible even when the quest list
+-- is shown — this does NOT reliably distinguish "detail active" from "list showing".
+-- Use hook-based tracking (see SQ RowFactory) for toggle-close detection.
+-- On TBC/Classic/MoP: always returns true (list and details always shown together).
+function AQL:IsQuestDetailShown()
+    return WowQuestAPI.IsQuestDetailPanelShown()
+end
+
 -- GetQuestLogSelection() → logIndex
 -- Returns the currently selected quest log entry index (0 if none selected).
+-- @deprecated Use GetSelectedQuestLogEntryId() instead. Returns a raw logIndex
+-- which changes on every quest log update and is not a stable quest identifier.
+-- Will be removed in a future major version.
 function AQL:GetQuestLogSelection()
     return WowQuestAPI.GetQuestLogSelection()
 end
@@ -533,6 +771,9 @@ end
 -- Sets the selected entry without refreshing the quest log display.
 -- Does not emit a debug message — use SetQuestLogSelection for the
 -- display-refreshing version.
+-- @deprecated Use SelectQuestLogEntryById(questID) instead. Takes a raw
+-- logIndex which is not stable across WoW version families. Will be removed
+-- in a future major version.
 function AQL:SelectQuestLogEntry(logIndex)
     WowQuestAPI.SelectQuestLogEntry(logIndex)
 end
@@ -546,6 +787,9 @@ end
 -- operating on a specific quest. This method exists only for callers that
 -- have already managed selection themselves.
 -- Emits no debug message (pass-through; caller manages selection context).
+-- @deprecated Use IsQuestIdShareable(questID) instead. Selection-dependent
+-- with no parameters — fragile by design. Will be removed in a future major
+-- version.
 function AQL:IsQuestLogShareable()
     return WowQuestAPI.GetQuestLogPushable()
 end
@@ -555,6 +799,9 @@ end
 -- Calls WowQuestAPI.QuestLog_SetSelection(logIndex) followed immediately
 -- by WowQuestAPI.QuestLog_Update(). These two calls are always used together;
 -- this is the canonical two-call sequence.
+-- @deprecated Use SelectAndShowQuestLogEntryById(questID) instead. Takes a
+-- raw logIndex which is not stable across WoW version families. Will be
+-- removed in a future major version.
 function AQL:SetQuestLogSelection(logIndex)
     if self.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] SetQuestLogSelection: logIndex=" .. tostring(logIndex) .. self.RESET)
@@ -568,6 +815,9 @@ end
 -- Verifies the entry is a header before acting; emits a normal-level debug
 -- message and returns without expanding if it is not.
 -- Emits a verbose debug message on successful expansion.
+-- @deprecated Use ExpandQuestLogZoneByName(zoneName) instead. Zone name is
+-- the stable identifier; logIndex changes on every quest log update. Will be
+-- removed in a future major version.
 function AQL:ExpandQuestLogHeader(logIndex)
     local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
     if not isHeader then
@@ -587,6 +837,9 @@ end
 -- Verifies the entry is a header before acting; emits a normal-level debug
 -- message and returns without collapsing if it is not.
 -- Emits a verbose debug message on successful collapse.
+-- @deprecated Use CollapseQuestLogZoneByName(zoneName) instead. Zone name is
+-- the stable identifier; logIndex changes on every quest log update. Will be
+-- removed in a future major version.
 function AQL:CollapseQuestLogHeader(logIndex)
     local _, _, _, isHeader = WowQuestAPI.GetQuestLogTitle(logIndex)
     if not isHeader then
@@ -654,20 +907,42 @@ end
 
 -- OpenQuestLogByIndex(logIndex)
 -- Shows the quest log frame and navigates to logIndex.
+-- On Retail: QuestMapFrame_ShowQuestDetails (called via ShowQuestDetails below) closes
+-- WorldMapFrame when the log is already open in quest list mode (QuestModelScene not
+-- visible — the "after Back" state). Detect this via QuestModelScene:IsVisible() and
+-- close first; ShowQuestLog reopens in the same Lua frame (imperceptible, same-frame
+-- Hide+Show), making ShowQuestDetails safe on the fresh-open path.
 function AQL:OpenQuestLogByIndex(logIndex)
     if self.debug == "verbose" then
         DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] OpenQuestLogByIndex: showing quest log, navigating to logIndex=" .. tostring(logIndex) .. self.RESET)
     end
+    -- On Retail: if already open in quest list mode, close first so ShowQuestLog can
+    -- reopen in a fresh-open state where ShowQuestDetails is safe.
+    if WowQuestAPI.IS_RETAIL and WowQuestAPI.IsQuestLogShown()
+       and not (QuestModelScene and QuestModelScene:IsVisible()) then
+        WowQuestAPI.HideQuestLog()
+    end
     WowQuestAPI.ShowQuestLog()
+    -- QuestMapFrame:IsVisible() confirms the quest log panel is active and
+    -- QuestModelScene's geometry is resolvable — safe to call SetSelectedQuest and
+    -- ShowQuestDetails.
+    if WowQuestAPI.IS_RETAIL and not (QuestMapFrame and QuestMapFrame:IsVisible()) then
+        return
+    end
     self:SelectAndShowQuestLogEntryByIndex(logIndex)
+    local info = WowQuestAPI.GetQuestLogInfo(logIndex)
+    if info and info.questID then
+        WowQuestAPI.ShowQuestDetails(info.questID)
+    end
 end
 
 -- ToggleQuestLogByIndex(logIndex)
 -- If the quest log is shown and logIndex is the current selection, hides
 -- the quest log. Otherwise opens the quest log and navigates to logIndex.
--- On the hide path: emits a verbose debug message.
--- On the open path: delegates to OpenQuestLogByIndex (which emits its own
--- verbose message — no separate message from ToggleQuestLogByIndex).
+-- On Retail: the toggle-close path requires C_QuestLog.GetSelectedQuest() to
+-- return questID, which only happens when WowQuestAPI.ShowQuestDetails successfully
+-- establishes the visual selection. Until ShowQuestDetails works, toggle-close
+-- is a graceful no-op (the log always opens; never incorrectly closes).
 function AQL:ToggleQuestLogByIndex(logIndex)
     if WowQuestAPI.IsQuestLogShown() and WowQuestAPI.GetQuestLogSelection() == logIndex then
         if self.debug == "verbose" then
@@ -683,6 +958,9 @@ end
 -- Returns the questID of the currently selected quest log entry.
 -- Returns nil if nothing is selected (logIndex = 0) or if the selected
 -- entry is a zone header row.
+-- @deprecated Use GetSelectedQuestLogEntryId() instead. This method name
+-- is ambiguous about which selection context it refers to. Will be removed
+-- in a future major version.
 function AQL:GetSelectedQuestId()
     local logIndex = WowQuestAPI.GetQuestLogSelection()
     if not logIndex or logIndex == 0 then
@@ -699,6 +977,17 @@ function AQL:GetSelectedQuestId()
         return nil
     end
     return questID
+end
+
+------------------------------------------------------------------------
+-- GetSelectedQuestLogEntryId() → questID or nil
+-- Returns the questID of the currently selected quest log entry.
+-- Returns nil if nothing is selected or if the selected entry is a zone
+-- header row.
+-- Replaces: GetSelectedQuestId() (deprecated)
+------------------------------------------------------------------------
+function AQL:GetSelectedQuestLogEntryId()
+    return WowQuestAPI.GetSelectedQuestLogEntryId()
 end
 
 -- GetQuestLogEntries() → array
@@ -891,6 +1180,23 @@ function AQL:IsQuestIdShareable(questID)
     return self:IsQuestIndexShareable(logIndex)
 end
 
+------------------------------------------------------------------------
+-- SelectQuestLogEntryById(questID)
+-- Selects questID in the quest log WITHOUT refreshing the display.
+-- Use SelectAndShowQuestLogEntryById to select and refresh simultaneously.
+-- No-op with a normal-level debug message if questID is not in the log.
+------------------------------------------------------------------------
+function AQL:SelectQuestLogEntryById(questID)
+    local logIndex = WowQuestAPI.GetQuestLogIndex(questID)
+    if not logIndex then
+        if self.debug then
+            DEFAULT_CHAT_FRAME:AddMessage(self.DBG .. "[AQL] SelectQuestLogEntryById: questID=" .. tostring(questID) .. " not in quest log — no-op" .. self.RESET)
+        end
+        return
+    end
+    WowQuestAPI.SelectQuestLogEntry(logIndex)
+end
+
 -- SelectAndShowQuestLogEntryById(questID)
 -- Selects questID in the quest log and refreshes the display.
 -- No-op with a normal-level debug message if questID is not in the log.
@@ -963,7 +1269,94 @@ SlashCmdList["ABSOLUTEQUESTLOG"] = function(input)
         else
             DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off]" .. aql.RESET)
         end
+    elseif sub == "list" then
+        local quests = aql:GetAllQuests()
+        local ids = {}
+        for questID in pairs(quests) do
+            ids[#ids + 1] = questID
+        end
+        table.sort(ids)
+        if #ids == 0 then
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Quest cache is empty." .. aql.RESET)
+        else
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Quest cache (" .. #ids .. " quests):" .. aql.RESET)
+            for _, questID in ipairs(ids) do
+                local info = quests[questID]
+                local title = (info and info.title) or "?"
+                DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "  " .. questID .. ": " .. title .. aql.RESET)
+            end
+        end
+    elseif sub == "fire" then
+        local qidStr, evtStr = arg:match("^(%S+)%s+(%S+)%s*$")
+        if not qidStr then
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql fire <questid> <event>" .. aql.RESET)
+            DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Events: accepted, abandoned, completed, finished, failed, tracked, untracked, progressed, obj_completed, regressed, obj_failed" .. aql.RESET)
+        else
+            local questID = tonumber(qidStr)
+            if not questID then
+                DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] /aql fire: invalid questID '" .. qidStr .. "'" .. aql.RESET)
+            else
+                local eventMap = {
+                    accepted                    = "AQL_QUEST_ACCEPTED",
+                    abandoned                   = "AQL_QUEST_ABANDONED",
+                    completed                   = "AQL_QUEST_COMPLETED",
+                    finished                    = "AQL_QUEST_FINISHED",
+                    failed                      = "AQL_QUEST_FAILED",
+                    tracked                     = "AQL_QUEST_TRACKED",
+                    untracked                   = "AQL_QUEST_UNTRACKED",
+                    progressed                  = "AQL_OBJECTIVE_PROGRESSED",
+                    obj_completed               = "AQL_OBJECTIVE_COMPLETED",
+                    regressed                   = "AQL_OBJECTIVE_REGRESSED",
+                    obj_failed                  = "AQL_OBJECTIVE_FAILED",
+                    aql_quest_accepted          = "AQL_QUEST_ACCEPTED",
+                    aql_quest_abandoned         = "AQL_QUEST_ABANDONED",
+                    aql_quest_completed         = "AQL_QUEST_COMPLETED",
+                    aql_quest_finished          = "AQL_QUEST_FINISHED",
+                    aql_quest_failed            = "AQL_QUEST_FAILED",
+                    aql_quest_tracked           = "AQL_QUEST_TRACKED",
+                    aql_quest_untracked         = "AQL_QUEST_UNTRACKED",
+                    aql_objective_progressed    = "AQL_OBJECTIVE_PROGRESSED",
+                    aql_objective_completed     = "AQL_OBJECTIVE_COMPLETED",
+                    aql_objective_regressed     = "AQL_OBJECTIVE_REGRESSED",
+                    aql_objective_failed        = "AQL_OBJECTIVE_FAILED",
+                }
+                local eventName = eventMap[evtStr]
+                if not eventName then
+                    DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] /aql fire: unknown event '" .. evtStr .. "'" .. aql.RESET)
+                else
+                    local questInfo = aql:GetQuest(questID) or aql:GetQuestInfo(questID) or {
+                        questID    = questID,
+                        title      = "Quest " .. questID,
+                        objectives = {},
+                        isComplete = false,
+                        isFailed   = false,
+                    }
+                    -- AQL_QUEST_FINISHED semantics: fires when isComplete transitions true.
+                    -- Wrap with a proxy so the cache entry is not mutated but consumers
+                    -- (e.g. SQ's SQ_UPDATE payload builder) see the correct state.
+                    if eventName == "AQL_QUEST_FINISHED" then
+                        questInfo = setmetatable({ isComplete = true }, { __index = questInfo })
+                    end
+                    if eventName:find("OBJECTIVE") then
+                        local objInfo = {
+                            index        = 1,
+                            text         = "Test Objective: 10/10",
+                            name         = "Test Objective",
+                            type         = "kill",
+                            numFulfilled = 10,
+                            numRequired  = 10,
+                            isFinished   = true,
+                            isFailed     = false,
+                        }
+                        aql.callbacks:Fire(eventName, questInfo, objInfo, 1)
+                    else
+                        aql.callbacks:Fire(eventName, questInfo)
+                    end
+                    DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Fired " .. eventName .. " for quest " .. questID .. " (" .. (questInfo.title or "?") .. ")" .. aql.RESET)
+                end
+            end
+        end
     else
-        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off]" .. aql.RESET)
+        DEFAULT_CHAT_FRAME:AddMessage(aql.DBG .. "[AQL] Usage: /aql debug [on|normal|verbose|off] | /aql list | /aql fire <questid> <event>" .. aql.RESET)
     end
 end

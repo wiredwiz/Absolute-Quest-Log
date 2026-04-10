@@ -1,6 +1,6 @@
-## Interface: 20505
+## Interface: 11508
 ## Title: Lib: AbsoluteQuestLog
-## Notes: A rich quest data library for WoW Burning Crusade Anniversary.
+## Notes: A rich quest data library — Classic Era, Season of Discovery, Hardcore.
 ## Author: Thad Ryker
 ## Version: 3.7.1
 ## X-Category: Library

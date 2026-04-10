@@ -18,6 +18,14 @@ local TAG_ELITE   = 1
 local TAG_RAID    = 62
 local TAG_DUNGEON = 81
 
+QuestieProvider.addonName    = "Questie"
+QuestieProvider.capabilities = {
+    AQL.Capability.Chain,
+    AQL.Capability.QuestInfo,
+    AQL.Capability.Requirements,
+    AQL.Capability.Details,
+}
+
 -- Returns the live QuestieDB module reference, or nil if Questie is not loaded
 -- or its database has not yet been compiled (Initialize() not yet run).
 -- pcall guards against ImportModule calling error() when the module is not
@@ -33,9 +41,25 @@ local function getDB()
     return db
 end
 
--- Returns true if Questie is available and the provider can be used.
+-- IsAvailable: Questie global loader is present and exposes ImportModule.
+-- Validate() handles the deeper structural and initialization checks.
 function QuestieProvider:IsAvailable()
-    return getDB() ~= nil
+    return type(QuestieLoader) == "table"
+        and type(QuestieLoader.ImportModule) == "function"
+end
+
+function QuestieProvider:Validate()
+    if type(QuestieLoader) ~= "table" then return false, "QuestieLoader missing" end
+    if type(QuestieLoader.ImportModule) ~= "function" then return false, "ImportModule missing" end
+    local ok, db = pcall(QuestieLoader.ImportModule, QuestieLoader, "QuestieDB")
+    if not ok or not db then return false, "QuestieDB unavailable" end
+    if type(db.GetQuest) ~= "function" then return false, "GetQuest missing" end
+    -- QuestPointers is nil during Questie's async init (~3 s after PLAYER_LOGIN).
+    -- This causes Validate() to return false during the deferred upgrade retry window,
+    -- which is treated as a silent retry (no notification). Once Questie finishes
+    -- initializing, Validate() returns true and the provider is selected.
+    if db.QuestPointers == nil then return false, "QuestPointers nil (not yet initialized)" end
+    return true
 end
 
 -- Lazy reverse-index: reverseChain[N] = questID whose nextQuestInChain == N.
@@ -181,16 +205,21 @@ function QuestieProvider:GetChainInfo(questID)
         -- Title: prefer Questie's stored name, fall back to C_QuestLog.GetQuestInfo
         -- (returns title string only in TBC 20505), then a numeric placeholder.
         local sq = db.GetQuest(sid)
-        s.title = (sq and sq.name) or C_QuestLog.GetQuestInfo(sid) or ("Quest "..sid)  -- pre-existing; AQL internal migration deferred
+        s.title = (sq and sq.name) or WowQuestAPI.GetQuestInfo(sid) or ("Quest "..sid)
     end
 
     return {
         knownStatus = AQL.ChainStatus.Known,
-        chainID     = chainID,
-        step        = stepNum,
-        length      = length,
-        steps       = steps,
-        provider    = AQL.Provider.Questie,
+        chains = {
+            {
+                chainID    = chainID,
+                step       = stepNum,
+                length     = length,
+                questCount = length,
+                steps      = steps,
+                provider   = AQL.Provider.Questie,
+            }
+        }
     }
 end
 
@@ -209,7 +238,7 @@ function QuestieProvider:GetQuestBasicInfo(questID)
     if not ok or not quest then return nil end
     local zone
     if quest.zoneOrSort and quest.zoneOrSort > 0 then
-        zone = C_Map.GetAreaInfo(quest.zoneOrSort)  -- returns string or nil
+        zone = WowQuestAPI.GetAreaInfo(quest.zoneOrSort)  -- returns string or nil
     end
     return {
         title         = quest.name,
@@ -277,6 +306,72 @@ function QuestieProvider:GetQuestRequirements(questID)
         exclusiveTo          = quest.exclusiveTo,
         nextQuestInChain     = nextInChain,
         breadcrumbForQuestId = quest.breadcrumbForQuestId,
+    }
+end
+
+-- Helper: resolves the first NPC starter/finisher name and zone from a Questie NPC ID array.
+-- Returns name, zone (both may be nil if NPC not in DB or zone not resolvable).
+local function resolveNPCInfo(db, npcIds)
+    if not npcIds or #npcIds == 0 then return nil, nil end
+    local npcId = npcIds[1]
+    if not npcId or npcId == 0 then return nil, nil end
+    local ok, npc = pcall(db.GetNPC, db, npcId)
+    if not ok or not npc then return nil, nil end
+    local name = npc.name
+    local zone
+    if npc.zoneID and npc.zoneID > 0 then
+        zone = WowQuestAPI.GetAreaInfo(npc.zoneID)
+    end
+    return name, zone
+end
+
+function QuestieProvider:GetQuestDetails(questID)
+    local db = getDB()
+    if not db then return nil end
+    local ok, quest = pcall(db.GetQuest, questID)
+    if not ok or not quest then return nil end
+
+    -- Description: objectivesText is an array of strings; join with newlines.
+    local description
+    if quest.objectivesText then
+        if type(quest.objectivesText) == "table" then
+            description = table.concat(quest.objectivesText, "\n")
+        elseif type(quest.objectivesText) == "string" then
+            description = quest.objectivesText
+        end
+        if description == "" then description = nil end
+    end
+
+    -- Starter NPC (startedBy[1] is the NPC ID array).
+    local starterNPC, starterZone
+    if quest.startedBy and quest.startedBy[1] then
+        starterNPC, starterZone = resolveNPCInfo(db, quest.startedBy[1])
+    end
+
+    -- Finisher NPC.
+    local finisherNPC, finisherZone
+    if quest.finishedBy and quest.finishedBy[1] then
+        finisherNPC, finisherZone = resolveNPCInfo(db, quest.finishedBy[1])
+    end
+
+    -- Dungeon / raid flags from questTagId.
+    local isDungeon = quest.questTagId == TAG_DUNGEON or nil
+    local isRaid    = quest.questTagId == TAG_RAID    or nil
+
+    -- Return nil when nothing useful to contribute.
+    if not description and not starterNPC and not finisherNPC
+       and not isDungeon and not isRaid then
+        return nil
+    end
+
+    return {
+        description  = description,
+        starterNPC   = starterNPC,
+        starterZone  = starterZone,
+        finisherNPC  = finisherNPC,
+        finisherZone = finisherZone,
+        isDungeon    = isDungeon,
+        isRaid       = isRaid,
     }
 end
 

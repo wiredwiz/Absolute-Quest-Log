@@ -1,16 +1,17 @@
 ================================================================================
   AbsoluteQuestLog-1.0  (AQL)
-  A quest data library for World of Warcraft: The Burning Crusade Anniversary
-  Interface: 20505
+  A version-agnostic quest data library for World of Warcraft
+  Supports: Classic Era (11508), TBC (20505), MoP Classic (50503), Retail (120001)
 ================================================================================
 
 AQL is a LibStub library that provides a unified, event-driven quest data API
 for consumer addons. It maintains a live snapshot of the player's quest log,
 tracks completion history, fires callbacks when quest and objective states
 change, and resolves extended quest data (chain info, zone, type, faction)
-through Questie or QuestWeaver when either is installed.
+through Questie, QuestWeaver, Grail, or BtWQuests when any are installed.
 
-AQL has no external addon dependencies. LibStub and CallbackHandler-1.0 are
+AQL runs on Classic Era, TBC Classic, Mists of Pandaria Classic, and Retail.
+It has no external addon dependencies. LibStub and CallbackHandler-1.0 are
 bundled inside the Libs\ folder.
 
 
@@ -50,6 +51,63 @@ Unregister:
     AQL:UnregisterCallback("AQL_QUEST_ACCEPTED", MyAddon)
 
 See the CALLBACKS section below for the full list of events and their arguments.
+
+
+--------------------------------------------------------------------------------
+  BREAKING CHANGES IN 3.0.0
+--------------------------------------------------------------------------------
+
+GetChainInfo Return Type Changed
+---------------------------------
+AQL:GetChainInfo(questID) now returns a wrapper object instead of a bare
+ChainInfo table.
+
+Before (2.x):
+
+    local ci = AQL:GetChainInfo(questID)
+    if ci.knownStatus == AQL.ChainStatus.Known then
+        print("Step " .. ci.step .. " of " .. ci.length)
+    end
+
+After (3.0):
+
+    local result = AQL:GetChainInfo(questID)
+    if result.knownStatus == AQL.ChainStatus.Known then
+        local ci = AQL:SelectBestChain(result, AQL:_GetCurrentPlayerEngagedQuests())
+        if ci then
+            print("Step " .. ci.step .. " of " .. ci.length)
+        end
+    end
+
+The wrapper shape:
+
+    { knownStatus = "known", chains = { { chainID, step, length, questCount, steps, provider }, ... } }
+    { knownStatus = "not_a_chain" }
+    { knownStatus = "unknown" }
+
+QuestInfo.chainInfo (on cached quest entries) now holds this wrapper object.
+
+
+New: AQL:SelectBestChain(chainResult, engagedQuestIDs)
+-------------------------------------------------------
+Picks the best-fit chain entry for a given player's engaged quest set.
+
+Current player:
+
+    local engaged = AQL:_GetCurrentPlayerEngagedQuests()
+    local chain = AQL:SelectBestChain(result, engaged)
+
+Party member:
+
+    local memberEngaged = {}
+    for qid in pairs(member.completedQuests or {}) do memberEngaged[qid] = true end
+    for qid in pairs(member.quests or {}) do memberEngaged[qid] = true end
+    local chain = AQL:SelectBestChain(result, memberEngaged)
+
+
+New Quest Type: AQL.QuestType.Weekly = "weekly"
+------------------------------------------------
+Reported by GrailProvider for weekly quests. Additive.
 
 
 --------------------------------------------------------------------------------
@@ -104,6 +162,17 @@ All methods are called on the library table (colon syntax).
 
   --- Quest Resolution ---
 
+  AQL:GetQuestAliasKey(questID)
+      Returns a stable fingerprint key for a quest (title + zone + sorted
+      objective signature). On Retail and MoP Classic, two questIDs that
+      represent the same logical quest (variant IDs per race/class) return the
+      same key. On Classic Era and TBC, returns tostring(questID). Returns nil
+      if the quest is not in the active cache.
+
+  AQL:AreQuestsAliases(id1, id2)
+      Returns true when both questIDs fingerprint to the same logical quest.
+      Returns false if either questID is not in the active cache.
+
   AQL:GetQuestInfo(questID)
       Three-tier resolution — use this when you need quest data for a quest
       that may not be in the player's active log (e.g. a party member's quest).
@@ -117,6 +186,13 @@ All methods are called on the library table (colon syntax).
 
       Returns nil only when all three tiers have no data.
       Guaranteed fields when non-nil: questID, title.
+
+  AQL:GetQuestDetails(questID)
+      Returns detailed quest info from the Details provider (Questie):
+      description, starterNPC, starterZone, finisherNPC, finisherZone,
+      isDungeon, isRaid. Returns nil when no Details provider is active or
+      the quest is unknown to it. Use this when GetQuestInfo Tier 1 (cache
+      path) results are missing these fields.
 
   AQL:GetQuestTitle(questID)
       Returns the title string for any questID, or nil. Delegates to
@@ -547,6 +623,14 @@ arguments listed below.
   /aql debug normal    Same as "on".
   /aql debug verbose   Enable verbose output (every cache phase, every event).
   /aql debug off       Disable debug output (default).
+
+  /aql list            Print all quests in the active cache (ID and title).
+  /aql fire <id> <event>
+                       Artificially fire an AQL callback for testing. Accepts
+                       short names: finished, completed, accepted, abandoned,
+                       failed, progressed, obj_completed, regressed, obj_failed.
+                       Useful for testing SocialQuest banners without a second
+                       player.
 
 Debug messages are prefixed with [AQL] in gold text.
 

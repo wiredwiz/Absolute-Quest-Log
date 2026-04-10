@@ -1,6 +1,6 @@
-## Interface: 20505
+## Interface: 50503
 ## Title: Lib: AbsoluteQuestLog
-## Notes: A rich quest data library for WoW Burning Crusade Anniversary.
+## Notes: A rich quest data library — Mists of Pandaria Classic.
 ## Author: Thad Ryker
 ## Version: 3.7.1
 ## X-Category: Library

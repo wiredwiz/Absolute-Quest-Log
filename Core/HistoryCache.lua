@@ -16,7 +16,8 @@ HistoryCache.count = 0
 -- Called by EventEngine at PLAYER_LOGIN.
 -- GetQuestsCompleted() is synchronous in TBC Classic; no async query needed.
 function HistoryCache:Load()
-    local data = GetQuestsCompleted()
+    local data = WowQuestAPI.GetQuestsCompleted()
+    if not data then return end
     local count = 0
     for questID, done in pairs(data) do
         if done then

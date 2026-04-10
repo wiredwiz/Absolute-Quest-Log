@@ -1,6 +1,524 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 3.7.1 (April 2026)
+============================
+- Bug fix: QuestieProvider:GetQuestDetails was calling pcall(db.GetQuest, db, questID),
+  passing the QuestieDB table as the questID argument. QuestieDB.GetQuest is a plain
+  function (dot notation, no self parameter), so the self argument caused every lookup
+  to fail and return nil. Fixed to pcall(db.GetQuest, questID), matching the call
+  pattern already used correctly in GetQuestBasicInfo and buildReverseChain.
+
+Version 3.7.0 (April 2026)
+============================
+- New public API: AQL:GetQuestDetails(questID) — returns description, starterNPC,
+  starterZone, finisherNPC, finisherZone, isDungeon, isRaid from the Details capability
+  provider (Questie). Returns nil when no Details provider is active or the quest is
+  unknown to it. Allows callers to get Details fields for quests in the player's active
+  log, where GetQuestInfo Tier 1 (cache path) returns the raw cache entry without them.
+
+Version 3.6.0 (April 2026)
+============================
+- Feature: Details capability (AQL.Capability.Details). New provider interface method
+  GetQuestDetails(questID) returns description, NPC info, and type flags for any
+  questID. QuestieProvider, NullProvider, GrailProvider, and Provider.lua updated.
+  EventEngine selects the Details provider slot at startup. GetQuestInfo Tier 2 and
+  Tier 3 paths merge Details fields into the returned result for non-cached quests.
+
+Version 3.5.3 (April 2026)
+============================
+- Bug fix: AQL:GetQuestAliasKey now fingerprints quests on MoP Classic the
+  same way it does on Retail. Previously, variant quest IDs (same logical quest,
+  different numeric ID per race/class character type) were never detected as
+  aliases on MoP Classic — AreQuestsAliases always returned false there.
+
+Version 3.5.2 (April 2026)
+============================
+- Bug fix: AQL_QUEST_FINISHED never fired on Retail. Root cause: on Retail,
+  C_QuestLog.GetInfo().isComplete returns nil (not true) even after all objectives
+  are fulfilled — it does not transition before turn-in. QuestCache._buildEntry now
+  derives isComplete from objective state on Retail: if the quest has at least one
+  objective and every objective has isFinished=true, isComplete is set to true. This
+  matches the semantics of AQL_QUEST_FINISHED (objectives met, ready to turn in) on
+  all WoW versions. Non-Retail behavior is unchanged.
+- Bug fix: transient questID=0 entries (non-header entries that C_QuestLog returns
+  with questID=0 during brief quest-log transition states on Retail) were being
+  written into the cache and generating spurious AQL_OBJECTIVE_COMPLETED callbacks.
+  QuestCache:Rebuild now skips any non-header entry whose questID is 0 or nil.
+
+Version 3.5.1 (April 2026)
+============================
+- Bug fix: /aql fire finished (AQL_QUEST_FINISHED) now passes isComplete=true in the
+  questInfo seen by subscribers, matching the actual semantics — AQL only fires
+  AQL_QUEST_FINISHED when isComplete transitions to true. Previously the stub/cache
+  entry had isComplete=false, causing SQ's SQ_UPDATE payload to encode isComplete=0,
+  so the receiving party member stored false for the sender's quest state and
+  checkAllCompleted's remote-done check suppressed the "Everyone Completed" banner.
+
+Version 3.5.0 (April 2026)
+============================
+- Feature: /aql list — prints all quests in the active cache, sorted by questID, with
+  each quest's title. Useful for identifying questIDs to use with /aql fire.
+- Feature: /aql fire <questid> <event> — artificially fires any AQL callback for a given
+  quest. questInfo is resolved from the live cache (GetQuest/GetQuestInfo) with a minimal
+  stub fallback when the quest is not in the log. Objective events (progressed,
+  obj_completed, regressed, obj_failed) receive a synthetic objInfo with 10/10 progress.
+  Accepts short event names (finished, completed, accepted, etc.) or full lowercased
+  event strings (aql_quest_finished, etc.). Prints a confirmation with the resolved title.
+
+Version 3.4.1 (April 2026)
+============================
+- Bug fix: AQL:IsQuestObjectiveText now correctly matches Retail's count-first objective
+  text format ("X/Y Description") in addition to the existing count-last format
+  ("Description: X/Y"). Previously the function only matched count-last, so on Retail
+  the UI_INFO_MESSAGE suppression in SocialQuest never fired — WoW's built-in floating
+  progress text showed alongside SQ's own banner. Fix: added count-first pattern
+  (^%d+/%d+%s+(.+)$) as a second match fallback; comparison now uses obj.name (count
+  already stripped by _buildEntry since 3.2.19) instead of obj.text:sub(1, baseLen).
+
+Version 3.4.0 (April 2026)
+============================
+- Bug fix: AQL_QUEST_FINISHED never fired on Retail after the last objective completed.
+  Root cause: on Retail some C_QuestLog calls inside QuestCache._buildEntry fire
+  QUEST_LOG_UPDATE as a next-frame side-effect; the 100 ms cooldown gate blocks those
+  noise events to prevent an infinite rebuild loop — but also silently dropped the
+  server's isComplete=true update, which typically arrives within the same 100 ms window.
+  Fix: after each Retail rebuild, a one-shot follow-up rebuild fires at t+150 ms (after
+  the cooldown expires). It re-reads the current quest log state, detects the isComplete
+  transition the cooldown blocked, and fires AQL_QUEST_FINISHED. Uses the same debounce
+  generation token as the original rebuild, so any real player action (which bumps gen)
+  cancels it — the real action's own rebuild captures the state instead.
+
+Version 3.3.0 (April 2026)
+============================
+- Feature: AQL:GetQuestAliasKey(questID) — returns a stable fingerprint key for a
+  quest (title + zone + sorted objective names/counts). On Retail, two questIDs that
+  represent the same logical quest (variant questIDs assigned per race/class character
+  type) return identical keys. On non-Retail, returns tostring(questID) with no overhead.
+  Returns nil on Retail when questID is not in the active cache.
+- Feature: AQL:AreQuestsAliases(id1, id2) — convenience wrapper; returns true when
+  both questIDs share the same alias key (both in cache and fingerprints match).
+- New internal: QuestCache:_buildAliasKey(info) — private fingerprint builder used by
+  GetQuestAliasKey.
+
+Version 3.2.19 (April 2026)
+============================
+- Bug fix: objective name extraction in QuestCache now handles Retail's count-first format.
+  "^(.-):%s*%d+/%d+%s*$" only matched count-last ("Description: X/Y"). Retail returns
+  count-first ("X/Y Description"), so name fell back to the full text. Any consumer using
+  objective.name (announcements, etc.) then prepended its own X/Y, doubling the count.
+  Fix: added "^%d+/%d+%s+(.+)$" fallback pattern before the verbatim fallback.
+
+Version 3.2.18 (April 2026)
+============================
+- Bug fix: AQL:OpenQuestLogByIndex now closes WorldMapFrame before reopening when the log is
+  already open in quest list mode (Retail only). QuestMapFrame_ShowQuestDetails from list mode
+  (QuestModelScene not visible — after pressing Back) closes WorldMapFrame as a side effect.
+  Fix: detect list mode via QuestModelScene:IsVisible(); if open in list mode, call
+  WowQuestAPI.HideQuestLog() before ShowQuestLog(). Same-frame Hide+Show = no visible flash.
+
+Version 3.2.17 (April 2026)
+============================
+- Feature: WowQuestAPI.IsQuestDetailPanelShown() / AQL:IsQuestDetailShown() added.
+  Checks QuestModelScene:IsVisible() on Retail. NOTE: in Retail's split-pane layout,
+  QuestModelScene stays visible even when the quest list is shown — this function does
+  not reliably distinguish detail-panel-active from quest-list-showing. Do not use for
+  toggle-close detection; use hook-based tracking (see SQ RowFactory 2.17.18).
+  On TBC/Classic/MoP always returns true.
+
+Version 3.2.16 (April 2026)
+============================
+- Bug fix: QuestModelScene:GetRight() guard replaced with QuestMapFrame:IsVisible()
+  in ShowQuestDetails and OpenQuestLogByIndex. GetRight() returns nil even after
+  ToggleQuestLog activates QuestMapFrame (scene not yet shown), blocking navigation
+  on every first SQ click. QuestMapFrame:IsVisible() is the correct readiness signal:
+  quest log panel active = QuestModelScene anchors resolvable = safe to call ShowQuestDetails.
+
+Version 3.2.15 (April 2026)
+============================
+- Bug fix: ShowQuestLog on Retail now calls ToggleQuestLog() (TOGGLEQUESTLOG keybind
+  function) when WorldMapFrame is not visible. WorldMapFrame:Show() opens in map mode
+  (QuestModelScene uninitialized). QuestMapFrame_OpenToAllQuests() calls an internal
+  toggle that hides WorldMapFrame when already visible (window never appears).
+  ToggleQuestLog() opens in quest log panel mode, initializing QuestModelScene.
+  Falls back to WorldMapFrame:Show() if absent.
+
+Version 3.2.14 (April 2026)
+============================
+- Bug fix: ShowQuestLog on Retail now calls WorldMapFrame:Show() AND
+  QuestMapFrame_OpenToAllQuests(). Show() alone opens in map mode (QuestModelScene
+  uninitialized, tracker crashes). OpenToAllQuests() alone navigates the internal panel
+  but the window never appears on screen. Both are required: Show() for visibility,
+  OpenToAllQuests for quest log panel activation and QuestModelScene initialization.
+
+Version 3.2.13 (April 2026)
+============================
+- Bug fix: ShowQuestLog on Retail now calls QuestMapFrame_OpenToAllQuests() instead of
+  WorldMapFrame:Show(). WorldMapFrame:Show() opens in map mode without activating
+  QuestMapFrame, so QuestModelScene children never receive valid geometry. Tracker clicks
+  then crash on QuestModelScene:GetRight() == nil. QuestMapFrame_OpenToAllQuests()
+  navigates to quest log panel mode, properly initializing QuestModelScene.
+  Falls back to WorldMapFrame:Show() if absent.
+
+Version 3.2.12 (April 2026)
+============================
+- Bug fix: ShowQuestDetails guard was checking QuestFrameModelScene (NPC dialog model
+  scene, a different frame) instead of QuestModelScene (WorldMapFrame detail panel model
+  scene — the one that crashes). QuestFrameModelScene may be initialized when
+  QuestModelScene is not, so the wrong guard passed and allowed the crash through.
+- Bug fix: OpenQuestLogByIndex now gates SelectAndShowQuestLogEntryByIndex on Retail
+  behind QuestModelScene readiness. SetSelectedQuest may trigger WorldMapFrame auto-
+  navigation to the detail panel, same crash path as ShowQuestDetails directly.
+
+Version 3.2.11 (April 2026)
+============================
+- Bug fix: QuestFrameModelScene guard added to WowQuestAPI.ShowQuestDetails. Before
+  calling QuestMapFrame_ShowQuestDetails, checks that QuestFrameModelScene exists and
+  GetRight() is non-nil. The model scene is lazy-initialized (requires NPC quest dialog
+  to have been opened once); calling without it initialized triggers a Blizzard bug that
+  breaks the quest tracker for the rest of the session. pcall restored around the call.
+
+Version 3.2.10 (April 2026)
+============================
+- Diagnostic: pcall removed from ShowQuestDetails so errors surface in WoW error
+  frame. Temporary — restore pcall once the correct Retail API is identified.
+
+Version 3.2.9 (April 2026)
+===========================
+- Reverted 3.2.8 _openedQuestID tracking (wrong design — stale if log opened
+  from other sources). Toggle correctly uses observable UI state only.
+  Documented that toggle-close on Retail depends on ShowQuestDetails working.
+
+Version 3.2.8 (April 2026)
+- Bug fix: ToggleQuestLogByIndex broken on Retail — GetQuestLogSelection() returns 0
+  unconditionally, so the == logIndex check always failed (log never closed).
+  Fixed via _openedQuestID tracking: OpenQuestLogByIndex records the questID,
+  HideQuestLog clears it, ToggleQuestLogByIndex compares against it on Retail.
+- Feature: AQL:GetCurrentlyOpenQuestId() — returns tracked questID; nil when closed.
+
+Version 3.2.7 (April 2026)
+===========================
+- Feature: WowQuestAPI.ShowQuestDetails(questID) added. On Retail, navigates
+  WorldMapFrame to the quest's detail panel via QuestMapFrame_ShowQuestDetails
+  (nil-guarded, pcall-guarded). No-op on TBC/Classic/MoP.
+- Feature: AQL:OpenQuestLogByIndex now calls ShowQuestDetails after selection,
+  giving all OpenQuestLog* callers proper detail-panel navigation on Retail.
+
+Version 3.2.6 (April 2026)
+===========================
+- Feature: `AQL:GetChainInfo(questID)` now falls through to the Chain provider when
+  `QuestCache` has no Known answer for the queried questID. Previously, questIDs not in
+  the local player's log (e.g. a party member's Retail variant questID) always returned
+  `knownStatus = Unknown`. Now the Chain provider (e.g. GrailProvider) is consulted as a
+  tier-2 source; its result is returned when Known. Cache is still preferred when Known —
+  the provider is only consulted when the cache has no Known result. The `pcall` guard
+  is consistent with how EventEngine calls providers.
+
+Version 3.2.5 (April 2026)
+===========================
+- Bug fix: GetChainInfo called annotateSteps directly on cached step objects (from
+  variantChainCache), mutating their .status fields. Any consumer holding a prior
+  reference to the steps array would see stale statuses from the last GetChainInfo
+  call. Fixed with deepCopySteps (two-level fixed-depth copy) applied before
+  annotateSteps in all three GetChainInfo code paths.
+- Performance: GetChainInfo Path 2 iterated pairs(reverseMap) — O(N) over the full
+  Grail database on Retail. buildReverseMap now builds titleToReverseMapIDs[name]
+  (a third-pass index of reverseMap keys by quest title). Path 2 uses a single
+  table lookup instead of a full scan.
+- Refactor: annotateSteps hoisted to module level; was recreated as a closure on
+  every GetChainInfo call.
+
+Version 3.2.4 (April 2026)
+===========================
+- Bug fix (Retail): buildReverseMap stored questID values directly from
+  pairs(g.questPrerequisites) without normalizing to numbers. If Grail uses string
+  keys in questPrerequisites, the stored values were strings. Downstream code
+  (g:QuestName, reverseMap key lookups, allSameTitle) expects numeric questIDs.
+  Fix: store tonumber(questID) or questID so values are always numbers when possible.
+  This unblocks allSameTitle returning true for same-name variant successors and
+  fixes buildChainFromRoot continuing past the first multi-variant step.
+- Bug fix (Retail): GetChainInfo fallback for unlinked variant questIDs previously
+  searched QuestCache for a same-title quest with Known chain info. This had a timing
+  dependency: if QuestCache built 28766's chainInfo before the reverseMap was populated
+  (PLAYER_LOGIN race), it stored "not_a_chain" and the fallback could not find a
+  matching Known entry. Replaced with a direct reverseMap key search: reverseMap keys
+  are always numeric questIDs that have successors in Grail's graph. If a key matches
+  the variant's title (g:QuestName), that is the canonical questID — its chain is built
+  via findRoots + buildChainFromRoot and returned for the variant. No QuestCache
+  dependency, no timing issues.
+
+Version 3.2.3 (April 2026)
+===========================
+- Bug fix (Retail): GrailProvider.buildChainFromRoot stopped chain traversal when a
+  quest had multiple successors that did not share a convergence point. On Retail, each
+  chain step has many race/class variant questIDs stored as independent successors in
+  Grail's prerequisite graph — these are not genuinely divergent branches, they are
+  the same logical quest. Fix: when multiple successors fail the convergence check,
+  compare their titles (g:QuestName). If all share the same title, group them as a
+  parallel variant step and continue traversal with the union of their successors.
+  Same logic applied to the multi-wave loop path. Chain length now reflects the full
+  Grail-known chain rather than stopping at the first multi-variant step.
+- Bug fix (Retail): GrailProvider.GetChainInfo returned "not_a_chain" for Retail
+  variant questIDs that have no entries in Grail's prerequisite graph (e.g. a quest
+  whose questID is not the one Grail chose as canonical for its chain). Fix: when
+  "not_a_chain" would be returned, look up the quest's title via g:QuestName and
+  search QuestCache for a same-title quest with known chain data. If found, return
+  that chain info so consumers can group both variants under the same chainID.
+
+Version 3.2.2 (April 2026)
+===========================
+- Bug fix: GrailProvider.buildReverseMap() set reverseMapBuilt=true even when
+  Grail's questPrerequisites table was empty at call time. This caused a permanent
+  race condition on /reload: AQL's PLAYER_LOGIN handler calls GetChainInfo (via
+  QuestCache._buildEntry) before Grail finishes populating questPrerequisites, so the
+  reverse map was built empty and locked — all subsequent GetChainInfo calls returned
+  "not_a_chain" for the rest of the session. Fix: added an early-return guard
+  (not next(g.questPrerequisites)) before the loop, so buildReverseMap does not set
+  reverseMapBuilt=true when the table is empty. The next call after Grail populates
+  the table will complete the build correctly.
+
+Version 3.2.1 (April 2026)
+===========================
+- Bug fix: GrailProvider:GetQuestBasicInfo was calling WowQuestAPI.GetAreaInfo(mapArea)
+  to resolve zone names, but Grail's mapArea values are uiMapIDs, not AreaTable IDs.
+  C_Map.GetAreaInfo expects an AreaTable ID — passing a uiMapID returned an unrelated
+  sub-area name (e.g. uiMapID 12 → AreaTable ID 12 → "Moonwell of Purity" instead of
+  "Elwynn Forest"). Fixed by calling g:MapAreaName(mapArea) instead, which uses Grail's
+  own mapAreaMapping table (uiMapID → localized zone name, built at startup via
+  C_Map.GetMapInfo). Correct on all WoW version families.
+
+Version 3.2.0 (April 2026)
+===========================
+- Bug fix (defensive): WowQuestAPI.GetQuestInfo Retail branch and QuestCache:Rebuild()
+  now skip campaign/chapter headers when tracking the current zone. On Retail,
+  C_QuestLog.GetInfo() returns both geographic zone headers and campaign chapter headers
+  (both have isHeader = true). Both code paths now guard with
+  "if not (info.campaignID and info.campaignID ~= 0)" before updating currentZone.
+- New: WowQuestAPI.GetQuestLogInfo() Retail return table now includes campaignID field.
+
+Version 3.1.5 (April 2026)
+===========================
+- Bug fix: WowQuestAPI.GetQuestInfo crashed on Retail with "attempt to call field
+  'GetQuestInfo' (a nil value)". The Retail branch was calling
+  C_QuestLog.GetQuestInfo(questID), which was removed in Patch 9.0.1 (Shadowlands,
+  2020). Fixed by replacing the Retail branch with the same Tier-1 log scan +
+  Tier-2 fallback pattern as the Classic/TBC/MoP branch: scan via
+  C_QuestLog.GetNumQuestLogEntries() + C_QuestLog.GetInfo(i) for quests in the log
+  (returns zone, level, and full fields), then fall back to
+  C_QuestLog.GetTitleForQuestID(questID) for quests not in the log. isComplete
+  normalized to boolean (== true) since C_QuestLog.GetInfo returns boolean on Retail.
+  Fixes AQL:GetQuestInfo and AQL:GetQuestTitle on Retail.
+
+Version 3.1.4 (April 2026)
+===========================
+- Scope fix: post-rebuild cooldown gate in EventEngine.lua now only activates on
+  Retail. The 3.1.3 fix set rebuildCooldownUntil unconditionally after every rebuild,
+  which could suppress legitimate QUEST_LOG_UPDATE events within 100ms on
+  Classic/TBC/MoP. The cooldown set is now guarded by WowQuestAPI.IS_RETAIL; on all
+  other versions rebuildCooldownUntil stays 0 and the gate check is always false.
+- New: WowQuestAPI.IS_RETAIL, IS_TBC, IS_CLASSIC_ERA, IS_MOP exported as fields on
+  WowQuestAPI so other AQL modules can gate version-specific behaviour without
+  re-parsing the TOC version.
+
+Version 3.1.3 (April 2026)
+===========================
+- Bug fix: Infinite QUEST_LOG_UPDATE loop persisted on Retail even after 3.1.1 and 3.1.2
+  fixes. Root cause: some Retail C_QuestLog API calls inside QuestCache._buildEntry still
+  fire QUEST_LOG_UPDATE synchronously as a side-effect, re-entering handleQuestLogUpdate
+  mid-rebuild and scheduling another rebuild for every quest in the log. Fix: added a
+  post-rebuild cooldown gate in EventEngine.lua. After each rebuild completes,
+  EventEngine.rebuildCooldownUntil is set to GetTime() + 0.1s. Any QUEST_LOG_UPDATE or
+  QUEST_WATCH_LIST_CHANGED event received during that 100ms window is silently dropped.
+  Real player-action events (QUEST_ACCEPTED, QUEST_REMOVED) bypass the gate via a
+  bypassCooldown=true parameter and are never suppressed.
+
+Version 3.1.2 (April 2026)
+===========================
+- Bug fix: Infinite QUEST_LOG_UPDATE loop continued after 3.1.1 fix. Root cause:
+  WowQuestAPI.GetQuestLogSelection() did not guard for IS_RETAIL. If the
+  GetQuestLogSelection global exists on Retail and returns a non-zero logIndex, the
+  Phase 5 restore in QuestCache:Rebuild() calls SelectQuestLogEntry(), which calls
+  C_QuestLog.SetSelectedQuest(), which fires QUEST_LOG_UPDATE. GetQuestLogSelection
+  now returns 0 unconditionally on Retail — the save/restore is only needed to undo
+  ExpandQuestHeader calls, which are no-ops on Retail anyway.
+- Bug fix: GetQuestLinkByIndex() and GetQuestLinkById() called C_QuestLog.GetQuestLink
+  without nil-guarding. C_QuestLog.GetQuestLink is absent on Interface 120001. Both
+  wrappers now nil-guard it and return nil when absent (callers fall back to manual
+  hyperlink construction).
+
+Version 3.1.1 (April 2026)
+===========================
+- Bug fix: Infinite QUEST_LOG_UPDATE loop on Retail. QuestCache._buildEntry called
+  WowQuestAPI.SelectQuestLogEntry(logIndex) per quest to read the timer; on Retail
+  this calls C_QuestLog.SetSelectedQuest() which fires QUEST_LOG_UPDATE, scheduling
+  another rebuild — repeating for every quest in the log. Fix: new
+  WowQuestAPI.GetQuestTimerByIndex(logIndex) wrapper that skips the select+timer
+  block entirely on Retail (returns nil). _buildEntry now calls GetQuestTimerByIndex
+  instead of SelectQuestLogEntry + GetQuestLogTimeLeft.
+- Bug fix: GetQuestLogTimeLeft() called the bare global which may be nil on Retail.
+  Added nil-guard; returns nil when global absent.
+- Bug fix: GetQuestLinkByIndex(logIndex) called GetQuestLink(logIndex) global which
+  is absent on Retail. On Retail, resolves logIndex → questID via GetQuestLogInfo
+  then calls C_QuestLog.GetQuestLink(questID). Also nil-guards GetQuestLink on
+  legacy clients for robustness.
+
+Version 3.1.0 (April 2026)
+===========================
+- Bug fix: WowQuestAPI.IsQuestWatchedByIndex() and IsQuestWatchedById() crashed on
+  Retail — C_QuestLog.IsQuestWatched was removed in a later Retail build. Both
+  wrappers now nil-check C_QuestLog.IsQuestWatched first; if absent, fall back to
+  C_QuestLog.GetQuestWatchType(questID) ~= nil (non-nil = watched); if both absent,
+  return false.
+
+Version 3.0.1 (April 2026)
+===========================
+- Bug fix: WowQuestAPI.GetNumQuestLogEntries() crashed on Retail —
+  GetNumQuestLogEntries global removed; now calls C_QuestLog.GetNumQuestLogEntries().
+- Bug fix: WowQuestAPI.GetQuestLogTitle() crashed on Retail —
+  GetQuestLogTitle global removed; now maps C_QuestLog.GetInfo() to legacy return format.
+- Bug fix: ExpandQuestHeader/CollapseQuestHeader wrappers now nil-guard the
+  globals before calling (may be absent on some Retail builds).
+
+Version 3.0.0 (March 2026)
+==========================
+BREAKING CHANGES
+----------------
+- GetChainInfo return type: AQL:GetChainInfo(questID) now returns
+  { knownStatus, chains={...} } wrapper instead of a bare ChainInfo.
+  All callers must update. Use AQL:SelectBestChain(result, engagedSet)
+  to extract a chain entry. See README.md for full migration guide.
+- QuestInfo.chainInfo field now holds the wrapper object (not bare ChainInfo).
+
+New Features
+------------
+- GrailProvider: quest chain, basic info, and requirements from the Grail addon.
+  Last in all three provider priority lists. Covers all WoW version families.
+- AQL:SelectBestChain(chainResult, engagedQuestIDs) — player-agnostic chain
+  selector. Pass any {[questID]=true} set; returns best-fit chain entry. Memoized.
+- AQL.QuestType.Weekly = "weekly" — weekly quest type (GrailProvider).
+- AQL.Provider.Grail = "Grail" — enum for GrailProvider chain entries.
+- Multi-quest steps in chain format: { quests={...}, groupType="parallel"|"branch"|"unknown" }.
+
+Updated
+-------
+- GetChainStep / GetChainLength use SelectBestChain internally for current player.
+- EventEngine clears SelectBestChain cache on QUEST_ACCEPTED, QUEST_REMOVED, QUEST_TURNED_IN.
+
+Version 2.6.1 (March 2026)
+---------------------------
+- New provider: BtWQuestsProvider — supplies chain data (GetChainInfo), faction
+  (GetQuestFaction), and level-range requirements (GetQuestRequirements) on Retail
+  from the BtWQuests addon. Inert on TBC/Classic/MoP (IsAvailable returns false when
+  BtWQuests global is absent).
+- Reverse index built incrementally on first use: questID → chainKey. Handles .ids
+  (OR-logic step variants), item.variations, and non-quest chain items (silently skipped).
+- New: AQL.Provider.BtWQuests = "BtWQuests" enum entry.
+- EventEngine: BtWQuestsProvider added to Chain, QuestInfo, and Requirements priority
+  lists. On Retail without Questie or QuestWeaver, fills all three capability slots.
+
+Version 2.6.0 (March 2026)
+---------------------------
+- Refactor: provider system restructured for multi-provider capability routing (Chain, QuestInfo, Requirements buckets).
+- New: AQL.Capability enum, AQL.WARN color constant, AQL.providers table.
+- New: Provider:Validate() method, Provider.addonName and Provider.capabilities fields on all providers.
+- New: Always-on broken-provider and missing-provider notifications (orange, with sound).
+- Behavior unchanged for players with a working Questie or QuestWeaver installation.
+
+Version 2.5.5 (March 2026)
+---------------------------
+- Retail support: AQL is now fully functional on Retail (Interface 120001). No behavioral changes on Classic Era, TBC, or MoP.
+- New: WowQuestAPI.GetQuestLogInfo(logIndex) — normalization wrapper returning { title, level, suggestedGroup, isHeader, isCollapsed, isComplete, questID } from GetQuestLogTitle (Classic/TBC/MoP) or C_QuestLog.GetInfo (Retail).
+- New: WowQuestAPI.GetSelectedQuestLogEntryId() — Retail uses C_QuestLog.GetSelectedQuest() directly; Classic/TBC/MoP resolve via logIndex → GetQuestLogInfo.
+- Fix: GetQuestsCompleted() Retail branch converts C_QuestLog.GetAllCompletedQuestIDs() sequential array to {[questID]=true} hash map.
+- Fix: TrackQuest/UntrackQuest call C_QuestLog.AddQuestWatch(questID)/RemoveQuestWatch(questID) on Retail.
+- Fix: IsQuestWatchedByIndex/ById call C_QuestLog.IsQuestWatched on Retail.
+- Fix: ShowQuestLog/HideQuestLog/IsQuestLogShown redirect to WorldMapFrame on Retail.
+- Fix: QuestLog_SetSelection/SelectQuestLogEntry call C_QuestLog.SetSelectedQuest(questID) on Retail.
+- Fix: GetQuestLogPushable calls C_QuestLog.IsPushableQuest(questID) on Retail.
+- Fix: GetQuestLinkById calls C_QuestLog.GetQuestLink(questID) on Retail.
+- Robustness: GetMaxWatchableQuests falls back to 25 if MAX_WATCHABLE_QUESTS is nil on Retail.
+- Robustness: GetWatchedQuestCount returns 0 if GetNumQuestWatches global is absent on Retail.
+- Refactor: AQL:GetSelectedQuestLogEntryId body replaced with single delegation to WowQuestAPI.GetSelectedQuestLogEntryId(). Debug messages removed.
+- Refactor: QuestCache Phase 3 uses GetQuestLogInfo instead of GetQuestLogTitle. Skip-not-break on nil entries.
+
+Version 2.5.4 (March 2026)
+---------------------------
+- Feature: AQL:GetSelectedQuestLogEntryId() added — questID-based, unambiguously
+  named replacement for deprecated GetSelectedQuestId(). Identical behavior.
+- Feature: AQL:SelectQuestLogEntryById(questID) added — selects quest log entry
+  without display refresh; questID-based replacement for deprecated
+  SelectQuestLogEntry(logIndex).
+- Deprecation: GetQuestLogSelection, GetSelectedQuestId, IsQuestLogShareable,
+  SelectQuestLogEntry, SetQuestLogSelection, ExpandQuestLogHeader,
+  CollapseQuestLogHeader marked @deprecated. All continue to function.
+  See README.md for migration guide. Will be removed in a future major version.
+- Docs: README.md rewritten as complete consumer-facing API reference with Quick
+  Start examples, full method tables, callback reference, QuestInfo/ChainInfo
+  data structures, and deprecation migration table. Version support updated to
+  reflect Classic Era, TBC, MoP, and Retail (in development).
+- Docs: CLAUDE.md Group 2 thin wrappers split into Preferred and Deprecated
+  sub-sections. ById methods marked as preferred for most consumers.
+
+Version 2.5.3 (March 2026)
+---------------------------
+- Refactor: All direct WoW global calls outside WowQuestAPI.lua replaced with
+  wrapper calls. Files updated: QuestCache.lua (15 callsites), HistoryCache.lua
+  (1), EventEngine.lua (1), AbsoluteQuestLog.lua (1), QuestieProvider.lua (1).
+- New wrappers added to WowQuestAPI.lua: GetQuestsCompleted,
+  IsQuestWatchedByIndex, IsQuestWatchedById, GetQuestLogTimeLeft,
+  GetQuestLinkByIndex, GetQuestLinkById, GetCurrentDisplayedQuestID,
+  GetWatchedQuestCount, GetMaxWatchableQuests, GetAreaInfo.
+  Zero behavioral changes on all four supported WoW version families.
+
+Version 2.5.2 (March 2026)
+---------------------------
+- Feature: MoP Classic (5.x) IsUnitOnQuest now functional — resolves questID
+  to logIndex via GetQuestLogIndex and calls the MoP global
+  IsUnitOnQuest(logIndex, unit). Returns nil when quest is not in the
+  player's log (collapsed or absent).
+- Feature: QUEST_TURNED_IN event registered and handled in EventEngine. Sets
+  pendingTurnIn directly on Classic Era, MoP, and Retail. GetQuestReward hook
+  retained for TBC compatibility where the event does not fire.
+- Fix: Boolean coercion on legacy WoW globals — GetQuestLogPushable and
+  IsQuestWatched now use explicit if/then/return and "and true or false"
+  patterns instead of ~= nil / == true comparisons that could silently return
+  wrong results when a C global returns 1 or boolean false.
+
+Version 2.5.1 (March 2026)
+---------------------------
+- Docs: Classic Era support made explicit in Core/WowQuestAPI.lua — GetQuestInfo
+  else-branch comment now names IS_TBC, IS_CLASSIC_ERA, and IS_MOP; header and
+  tier-2 comments updated accordingly. IsQuestFlaggedCompleted header comment
+  notes which API each version uses.
+- Docs: docs/api-compatibility.md — provider availability table added
+  (Questie/QuestWeaver/NullProvider x 4 version families). QuestWeaver
+  confirmed Classic Era and TBC only (no MoP). Retail chain info confirmed
+  always-unknown (no provider exists).
+
+Version 2.5.0 (March 2026)
+---------------------------
+- Infrastructure: Multi-toc files added (AbsoluteQuestLog_Classic.toc
+  Interface 11508, AbsoluteQuestLog_TBC.toc Interface 20505,
+  AbsoluteQuestLog_Mists.toc Interface 50503, AbsoluteQuestLog_Mainline.toc
+  Interface 120001). AQL now loads without Lua errors on all four active WoW
+  version families. Suffixes confirmed: _Classic, _TBC, _Mists, _Mainline.
+- Refactor: Version detection constants (IS_CLASSIC_ERA, IS_TBC, IS_MOP,
+  IS_RETAIL) added to Core/WowQuestAPI.lua. WotLK (30000-39999) and Cata
+  (40000-49999) intentionally out of scope.
+- Docs: docs/api-compatibility.md — full API compatibility audit covering
+  9 API categories x 4 version families.
+
+Version 2.4.1 (March 2026)
+---------------------------
+- Bug fix: AQL_QUEST_ACCEPTED never fired after the 2.3.0 false-positive fix.
+  Root cause: in TBC Classic (Interface 20505), the QUEST_ACCEPTED event does
+  not pass a questID — it passes the quest log index (or nothing). The 2.3.0
+  fix stored pendingQuestAccepts[logIndex] = true, but runDiff checked
+  pendingQuestAccepts[questID], so they never matched. Fix: replaced the
+  per-ID table with a pendingAcceptCount integer. QUEST_ACCEPTED increments
+  the count; runDiff decrements and fires for each new quest while count > 0;
+  QUEST_REMOVED resets to 0 to clear stale counts on abandon.
+
 Version 2.4.0 (March 2026)
 ---------------------------
 - New public API: AQL:GetQuestRequirements(questID) returns a table of quest

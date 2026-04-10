@@ -2,44 +2,79 @@
 -- Documents the interface every AQL provider must implement.
 -- This file contains no runtime code; it is documentation only.
 --
--- Every provider implements:
+-- Every provider must declare:
+--
+--   Provider.addonName    = "AddonName"   -- string; used in notification messages
+--   Provider.capabilities = { ... }       -- array of AQL.Capability.* values this provider covers
+--
+-- Every provider must implement:
+--
+--   Provider:IsAvailable()  → bool
+--     Lightweight presence check: addon global is loaded.
+--     false → skip silently (addon not installed); no notification.
+--     true  → proceed to Validate().
+--
+--   Provider:Validate()  → bool, errMsg
+--     Structural check: API shape is intact and data is initialized.
+--     Called only after IsAvailable() returns true.
+--     true        → use this provider for its declared capabilities.
+--     false, msg  → skip; fire broken-provider notification once per addonName.
+--     Note: during the deferred upgrade retry window, false is treated as
+--     IsAvailable() false — silent retry, no notification.
 --
 --   Provider:GetChainInfo(questID)
---     Returns a ChainInfo table or nil.
---     ChainInfo fields (when knownStatus = "known"):
+--     Returns a ChainInfo table (never nil).
+--     ChainInfo fields when knownStatus = "known":
 --       knownStatus = "known" | "not_a_chain" | "unknown"
 --       chainID     = questID of first quest in chain
 --       step        = this quest's 1-based position
 --       length      = total quests in chain
 --       steps       = array of { questID, title, status }
---       provider    = "Questie" | "QuestWeaver" | "none"
---     When knownStatus = "unknown": all other fields are nil.
---     When knownStatus = "not_a_chain": all other fields except knownStatus are nil.
+--       provider    = "Questie" | "QuestWeaver" | "BtWQuests" | "none"
+--     When knownStatus = "unknown":     only knownStatus present.
+--     When knownStatus = "not_a_chain": only knownStatus present.
 --
 --   Provider:GetQuestType(questID)
 --     Returns "normal"|"elite"|"dungeon"|"raid"|"daily"|"pvp"|"escort" or nil.
 --
 --   Provider:GetQuestFaction(questID)
---     Returns "Alliance", "Horde", or nil (nil means available to both).
+--     Returns "Alliance", "Horde", or nil (nil = available to both factions).
 --
 --   Provider:GetQuestRequirements(questID)
 --     Returns a requirements table or nil.
---     Return shape:
+--     Shape:
 --       {
---         requiredLevel        = N or nil,               -- questKeys[4]
---         requiredMaxLevel     = N or nil,               -- questKeys[32]
---         requiredRaces        = N or nil,               -- questKeys[6],  bitmask; nil means no restriction
---         requiredClasses      = N or nil,               -- questKeys[7],  bitmask; nil means no restriction
---         preQuestGroup        = { questID, ... } or nil, -- questKeys[12], ALL must be complete
---         preQuestSingle       = { questID, ... } or nil, -- questKeys[13], ANY ONE must be complete
---         exclusiveTo          = { questID, ... } or nil, -- questKeys[16]
---         nextQuestInChain     = questID or nil,          -- questKeys[22]
---         breadcrumbForQuestId = questID or nil,          -- questKeys[27]
+--         requiredLevel        = N or nil,
+--         requiredMaxLevel     = N or nil,
+--         requiredRaces        = N or nil,   -- bitmask; nil = no restriction
+--         requiredClasses      = N or nil,   -- bitmask; nil = no restriction
+--         preQuestGroup        = { questID, ... } or nil,  -- ALL must be complete
+--         preQuestSingle       = { questID, ... } or nil,  -- ANY ONE must be complete
+--         exclusiveTo          = { questID, ... } or nil,
+--         nextQuestInChain     = questID or nil,
+--         breadcrumbForQuestId = questID or nil,
 --       }
---     Bitmask fields with value 0 are normalised to nil by the provider
---     (0 means "no restriction" in Questie's encoding).
---     Returns nil when the provider has no data for this questID, or when the
---     provider does not implement this method (NullProvider).
+--     Bitmask fields with value 0 are normalised to nil.
+--     Returns nil when the provider has no data, or the method is not implemented.
 --
--- All provider calls in EventEngine are wrapped in pcall. A provider that
--- errors is marked unavailable and the next provider in the chain is tried.
+--   Provider:GetQuestBasicInfo(questID)   [optional — checked with `if provider.GetQuestBasicInfo then`]
+--     Returns { title, questLevel, requiredLevel, zone } or nil.
+--
+--   Provider:GetQuestDetails(questID)   [optional — checked with `if provider.GetQuestDetails then`]
+--     Returns a partial table of rich tooltip fields. Absent fields are not
+--     present in the returned table (not nil — simply missing). Returns nil
+--     entirely when the provider has no data for this quest.
+--
+--     Fields and provider availability:
+--       description  (string) — quest body/objectives text.           Questie only.
+--       starterNPC   (string) — quest-giver NPC name.                 Questie only (Grail: zone only).
+--       starterZone  (string) — zone of quest-giver.                  Questie + Grail.
+--       finisherNPC  (string) — turn-in NPC name.                     Questie only (Grail: zone only).
+--       finisherZone (string) — zone of turn-in NPC.                  Questie + Grail.
+--       isDungeon    (true)   — present and true for dungeon quests.   Questie + Grail.
+--       isRaid       (true)   — present and true for raid quests.      Questie + Grail.
+--
+--     Providers must omit fields they cannot supply (do not set to nil/false).
+--
+-- All provider calls in EventEngine and QuestCache are wrapped in pcall.
+-- A provider that errors does not crash the library.
