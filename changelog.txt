@@ -1,6 +1,15 @@
 AbsoluteQuestLog-1.0 Changelog
 ==============================
 
+Version 3.8.0 (April 2026)
+============================
+- Bug fix (Classic Era): AQL_QUEST_COMPLETED never fired on Classic Era (Interface 11508)
+  when a quest was turned in. Root cause: WowQuestAPI.IsQuestFlaggedCompleted called the
+  bare global IsQuestFlaggedCompleted(questID), which does not exist on the 1.14.x client.
+  The call errored inside runDiff's pcall, silently aborting the diff. Fixed by removing
+  the version branch; C_QuestLog.IsQuestFlaggedCompleted is available on all four supported
+  version families and is now used unconditionally.
+
 Version 3.7.1 (April 2026)
 ============================
 - Bug fix: QuestieProvider:GetQuestDetails was calling pcall(db.GetQuest, db, questID),

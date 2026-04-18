@@ -122,17 +122,13 @@ end
 ------------------------------------------------------------------------
 -- WowQuestAPI.IsQuestFlaggedCompleted(questID)
 -- Returns bool. True when the quest is in the character's completion history.
--- Classic Era: uses global IsQuestFlaggedCompleted(). TBC/MoP/Retail: uses C_QuestLog variant.
+-- All versions: C_QuestLog.IsQuestFlaggedCompleted. The legacy global does not exist on Classic Era.
 ------------------------------------------------------------------------
 
-if IS_TBC or IS_MOP or IS_RETAIL then
-    function WowQuestAPI.IsQuestFlaggedCompleted(questID)
-        return C_QuestLog.IsQuestFlaggedCompleted(questID) == true
-    end
-else  -- IS_CLASSIC_ERA
-    function WowQuestAPI.IsQuestFlaggedCompleted(questID)
-        return IsQuestFlaggedCompleted(questID) == true
-    end
+-- IsQuestFlaggedCompleted global does not exist on Classic Era (1.14.x); C_QuestLog variant
+-- is available on all four supported version families and is used unconditionally.
+function WowQuestAPI.IsQuestFlaggedCompleted(questID)
+    return C_QuestLog.IsQuestFlaggedCompleted(questID) == true
 end
 
 ------------------------------------------------------------------------

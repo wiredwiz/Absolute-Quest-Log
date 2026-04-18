@@ -385,6 +385,15 @@ Debug messages are prefixed `[AQL]` in gold (`AQL.DBG` color).
 
 ## Version History
 
+### Version 3.8.0 (April 2026)
+- Bug fix (Classic Era): `AQL_QUEST_COMPLETED` never fired on Classic Era (Interface 11508)
+  when a quest was turned in. Root cause: `WowQuestAPI.IsQuestFlaggedCompleted` called the
+  bare global `IsQuestFlaggedCompleted(questID)`, which does not exist on the 1.14.x client —
+  the call errored inside `runDiff`'s pcall, silently aborting the diff. Fixed by removing the
+  version branch entirely; `C_QuestLog.IsQuestFlaggedCompleted` is available on all four
+  supported version families (confirmed on Classic Era via diagnostic) and is now used
+  unconditionally.
+
 ### Version 3.7.1 (April 2026)
 - Bug fix: `QuestieProvider:GetQuestDetails` was calling `pcall(db.GetQuest, db, questID)`,
   passing the QuestieDB table as the questID argument. `QuestieDB.GetQuest` is a plain
