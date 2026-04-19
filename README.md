@@ -363,7 +363,7 @@ Returned by `GetQuest`, `GetAllQuests`, `GetQuestsByZone`, and callback argument
 
 ### ChainInfo
 
-Returned by `GetChainInfo`. Requires Questie or QuestWeaver.
+Returned by `GetChainInfo`. Requires Questie, QuestWeaver, Grail, or BtWQuests.
 
 ```lua
 -- When chain data is known:
