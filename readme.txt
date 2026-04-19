@@ -181,14 +181,14 @@ All methods are called on the library table (colon syntax).
         Tier 2: WoW log scan    — returns questID, title, level, suggestedGroup,
                                   isComplete, zone; augmented from Tier 3 if
                                   zone is absent
-        Tier 3: Provider DB     — Questie or QuestWeaver; adds zone, level,
-                                  requiredLevel, chainInfo
+        Tier 3: Provider DB     — Questie, QuestWeaver, Grail, or BtWQuests;
+                                  adds zone, level, requiredLevel, chainInfo
 
       Returns nil only when all three tiers have no data.
       Guaranteed fields when non-nil: questID, title.
 
   AQL:GetQuestDetails(questID)
-      Returns detailed quest info from the Details provider (Questie):
+      Returns detailed quest info from the Details provider (Questie or Grail):
       description, starterNPC, starterZone, finisherNPC, finisherZone,
       isDungeon, isRaid. Returns nil when no Details provider is active or
       the quest is unknown to it. Use this when GetQuestInfo Tier 1 (cache
@@ -232,7 +232,8 @@ All methods are called on the library table (colon syntax).
   AQL:GetChainInfo(questID)
       Returns a ChainInfo table for an active quest. Returns
       { knownStatus = "unknown" } if the quest is not in the cache or no
-      provider data is available. See DATA STRUCTURES below.
+      provider data is available. Requires Questie, QuestWeaver, Grail, or
+      BtWQuests. See DATA STRUCTURES below.
 
   AQL:GetChainStep(questID)
       Returns the 1-based step number of this quest within its chain, or nil
@@ -595,6 +596,8 @@ arguments listed below.
   AQL.Provider
     .Questie     = "Questie"
     .QuestWeaver = "QuestWeaver"
+    .Grail       = "Grail"
+    .BtWQuests   = "BtWQuests"
     .None        = "none"
 
   AQL.QuestType

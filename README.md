@@ -174,7 +174,7 @@ depending on the player's race or class. These methods let you detect and handle
 | Method | Returns | Description |
 |---|---|---|
 | `AQL:GetQuestInfo(questID)` | QuestInfo or nil | Three-tier resolution: cache → WoW log scan → provider DB. `questID` is always present in the result; `title` is present when any tier finds it but may be nil on a chain-data-only provider result. |
-| `AQL:GetQuestDetails(questID)` | table or nil | Returns quest details from the Details provider (Questie): `description`, `starterNPC`, `starterZone`, `finisherNPC`, `finisherZone`, `isDungeon`, `isRaid`. Returns nil when no Details provider is active. Use this when `GetQuestInfo` Tier 1 results are missing these fields (they are not stored in the live cache). |
+| `AQL:GetQuestDetails(questID)` | table or nil | Returns quest details from the Details provider (Questie or Grail): `description`, `starterNPC`, `starterZone`, `finisherNPC`, `finisherZone`, `isDungeon`, `isRaid`. Returns nil when no Details provider is active. Use this when `GetQuestInfo` Tier 1 results are missing these fields (they are not stored in the live cache). |
 | `AQL:GetQuestTitle(questID)` | string or nil | Returns the quest title. Delegates to `GetQuestInfo`. |
 | `AQL:GetQuestLink(questID)` | hyperlink or nil | Returns a chat-linkable hyperlink for the quest. |
 
@@ -189,7 +189,7 @@ depending on the player's race or class. These methods let you detect and handle
 
 #### Chain Info
 
-Requires Questie or QuestWeaver to be installed. Returns `{knownStatus="unknown"}` otherwise.
+Requires Questie, QuestWeaver, Grail, or BtWQuests to be installed. Returns `{knownStatus="unknown"}` otherwise.
 
 | Method | Returns | Description |
 |---|---|---|
@@ -380,7 +380,7 @@ Returned by `GetChainInfo`. Requires Questie or QuestWeaver.
         },
         -- ...
     },
-    provider = "Questie"|"QuestWeaver"|"none",
+    provider = "Questie"|"QuestWeaver"|"Grail"|"BtWQuests"|"none",
 }
 
 -- When the quest is not part of a chain:
@@ -391,6 +391,69 @@ Returned by `GetChainInfo`. Requires Questie or QuestWeaver.
 ```
 
 Use `AQL.ChainStatus.Known`, `AQL.ChainStatus.NotAChain`, and `AQL.ChainStatus.Unknown` constants instead of raw strings.
+
+---
+
+## Constants
+
+Always use these constants instead of raw strings.
+
+### `AQL.ChainStatus`
+
+| Constant | Value |
+|---|---|
+| `AQL.ChainStatus.Known` | `"known"` |
+| `AQL.ChainStatus.NotAChain` | `"not_a_chain"` |
+| `AQL.ChainStatus.Unknown` | `"unknown"` |
+
+### `AQL.StepStatus`
+
+| Constant | Value |
+|---|---|
+| `AQL.StepStatus.Completed` | `"completed"` |
+| `AQL.StepStatus.Active` | `"active"` |
+| `AQL.StepStatus.Finished` | `"finished"` |
+| `AQL.StepStatus.Failed` | `"failed"` |
+| `AQL.StepStatus.Available` | `"available"` |
+| `AQL.StepStatus.Unavailable` | `"unavailable"` |
+| `AQL.StepStatus.Unknown` | `"unknown"` |
+
+### `AQL.Provider`
+
+| Constant | Value | Notes |
+|---|---|---|
+| `AQL.Provider.Questie` | `"Questie"` | Chain, QuestInfo, Requirements, Details |
+| `AQL.Provider.QuestWeaver` | `"QuestWeaver"` | Chain, QuestInfo, Requirements (Classic/TBC only) |
+| `AQL.Provider.Grail` | `"Grail"` | Chain, QuestInfo, Requirements, Details |
+| `AQL.Provider.BtWQuests` | `"BtWQuests"` | Chain, QuestInfo, Requirements (Retail only) |
+| `AQL.Provider.None` | `"none"` | Fallback — no provider installed |
+
+### `AQL.QuestType`
+
+| Constant | Value |
+|---|---|
+| `AQL.QuestType.Normal` | `"normal"` |
+| `AQL.QuestType.Elite` | `"elite"` |
+| `AQL.QuestType.Dungeon` | `"dungeon"` |
+| `AQL.QuestType.Raid` | `"raid"` |
+| `AQL.QuestType.Daily` | `"daily"` |
+| `AQL.QuestType.PvP` | `"pvp"` |
+| `AQL.QuestType.Escort` | `"escort"` |
+| `AQL.QuestType.Weekly` | `"weekly"` |
+
+### `AQL.Faction`
+
+| Constant | Value |
+|---|---|
+| `AQL.Faction.Alliance` | `"Alliance"` |
+| `AQL.Faction.Horde` | `"Horde"` |
+
+### `AQL.FailReason`
+
+| Constant | Value |
+|---|---|
+| `AQL.FailReason.Timeout` | `"timeout"` |
+| `AQL.FailReason.EscortDied` | `"escort_died"` |
 
 ---
 
