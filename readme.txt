@@ -162,6 +162,10 @@ All methods are called on the library table (colon syntax).
 
   --- Quest Resolution ---
 
+  Tier 3 provider data (zone, level, chain info, and detailed quest info)
+  requires Questie or Grail to be installed. GetQuestDetails specifically
+  requires Questie or Grail; it returns nil when neither is present.
+
   AQL:GetQuestAliasKey(questID)
       Returns a stable fingerprint key for a quest (title + zone + sorted
       objective signature). On Retail and MoP Classic, two questIDs that

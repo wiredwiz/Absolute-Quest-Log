@@ -171,6 +171,8 @@ depending on the player's race or class. These methods let you detect and handle
 
 #### Quest Resolution
 
+Tier 3 provider data (zone, level, chain info, and detailed quest info) requires Questie or Grail to be installed. `GetQuestDetails` specifically requires Questie or Grail; it returns nil when neither is present.
+
 | Method | Returns | Description |
 |---|---|---|
 | `AQL:GetQuestInfo(questID)` | QuestInfo or nil | Three-tier resolution: cache → WoW log scan → provider DB. `questID` is always present in the result; `title` is present when any tier finds it but may be nil on a chain-data-only provider result. |
